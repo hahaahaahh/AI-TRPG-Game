@@ -1,0 +1,31 @@
+# Dependencies
+node_modules/
+
+# Environment variables (contains API keys)
+.env
+
+# SQLite database files
+*.db
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Build output
+dist/
+build/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Misc
+*.tmp

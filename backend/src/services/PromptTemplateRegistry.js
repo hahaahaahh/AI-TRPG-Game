@@ -9,105 +9,115 @@ const BASE_INTRO = `我在尝试一种新型的AI跑团，旨在通过结合AI�
 // 因此具体格式需通过 system prompt 明确告知 LLM。
 
 const WORLD_SCHEMA = `{
-  "world_description": "世界观描述文本，300字以内"
-}`;
+  "world_description": "<string>"
+}
+
+说明：
+- world_description 为世界观描述文本，300 字以内，请根据用户描述创作，不要套用示例值`;
 
 const CHARACTER_SCHEMA = `{
   "character_card": {
-    "name": "姓名",
-    "age": 42,
-    "gender": "性别",
-    "occupation": "职业",
-    "personality": "性格描述",
-    "portrait": "人物肖像与重要经历",
+    "name": "<string>",
+    "age": <number>,
+    "gender": "<string>",
+    "occupation": "<string>",
+    "personality": "<string>",
+    "portrait": "<string>",
     "attributes": {
-      "strength": 50, "dexterity": 50, "constitution": 60,
-      "size": 55, "appearance": 40, "intelligence": 60,
-      "willpower": 65, "education": 80
+      "strength": <number>, "dexterity": <number>, "constitution": <number>,
+      "size": <number>, "appearance": <number>, "intelligence": <number>,
+      "willpower": <number>, "education": <number>
     },
-    "hp": 11,
-    "san": 65,
-    "credit_rating": 20,
+    "hp": <number>,
+    "san": <number>,
+    "credit_rating": <number>,
     "occupational_skills": [
-      { "name": "技能名", "value": 60 }
+      { "name": "<string>", "value": <number> }
     ],
     "personal_skills": [
-      { "name": "技能名", "value": 40 }
+      { "name": "<string>", "value": <number> }
     ],
-    "inventory": ["随身物品1", "随身物品2"]
+    "inventory": ["<string>"]
   }
 }
 
 说明：
+- 所有 <number> 字段请根据 CoC7th 数值计算规则自行计算，不要套用示例值
+- 所有 <string> 字段请根据用户描述和世界观合理创作
 - occupational_skills 为 8 个本职技能，personal_skills 为 4 个非本职技能
 - 每个技能元素包含 name（技能名）和 value（点数）`;
 
 const STORY_OPENING_SCHEMA = `{
-  "narration": "开幕叙述文本",
+  "narration": "<string>",
   "locations": [
-    { "name": "地点名", "description": "描述" }
+    { "name": "<string>", "description": "<string>" }
   ],
   "npcs": [
-    { "name": "NPC名", "description": "描述" }
+    { "name": "<string>", "description": "<string>" }
   ],
   "items": [
-    { "name": "物品名", "status": "已获得 或 已失去", "description": "描述" }
+    { "name": "<string>", "status": "<string>", "description": "<string>" }
   ],
   "options": [
-    "A. 选项内容",
-    "B. 选项内容",
-    "C. 选项内容",
+    "A. <string>",
+    "B. <string>",
+    "C. <string>",
     "D. 自由行动"
   ]
 }
 
 说明：
+- 所有 <string> 字段请根据世界观和主角设定合理创作，不要套用示例值
 - locations / npcs / items 若无相应内容，设为空数组 []
 - items 中每个元素必须标明 status（已获得 / 已失去）
-- NPC 需为新出场人物或有重要状态更新的旧人物
+- NPC 需为新出场人物或有重要状态更新的旧人物（关键角色除外）
 - options 必须恰好包含 4 个元素，以 A. B. C. D. 开头，最后一个固定为"D. 自由行动"`;
 
 const NARRATIVE_SCHEMA = `格式 A —— 不需要投掷判定，正常叙事：
 {
-  "narration": "叙述文本",
+  "narration": "<string>",
   "locations": [
-    { "name": "地点名", "description": "描述" }
+    { "name": "<string>", "description": "<string>" }
   ],
   "npcs": [
-    { "name": "NPC名", "description": "描述" }
+    { "name": "<string>", "description": "<string>" }
   ],
   "items": [
-    { "name": "物品名", "status": "已获得 或 已失去", "description": "描述" }
+    { "name": "<string>", "status": "<string>", "description": "<string>" }
   ],
   "hp": null,
   "san": null,
   "options": [
-    "A. 选项内容",
-    "B. 选项内容",
-    "C. 选项内容",
+    "A. <string>",
+    "B. <string>",
+    "C. <string>",
     "D. 自由行动"
   ]
 }
 
 格式 B —— 需要投掷判定（此时不需要 locations/npcs/items/hp/san/options 字段）：
 {
-  "narration": "叙述文本（需要判定的地方用【】标注）",
+  "narration": "<string>（需要判定的地方用【】标注）",
   "dice": {
-    "skill_name": "技能名",
-    "skill_point": 60,
-    "notation": "1d100",
-    "success_rate": 50
+    "skill_name": "<string>",
+    "skill_point": <number>,
+    "notation": "<string>",
+    "success_rate": <number>
   }
 }
 
 说明：
+- 所有 <string> 和 <number> 字段请根据实际情况合理填写，不要套用示例值
 - hp / san 若无变化设为 null，不要省略
-- locations / npcs / items 若本轮无新内容，设为空数组 []，不要编造
+- locations / npcs / items 若本轮无新内容，设为空数组 []，不要编造（关键角色除外）
 - options 必须恰好包含 4 个元素，最后一个固定为"D. 自由行动"`;
 
 const SUMMARY_SCHEMA = `{
-  "summary": "总结文本，300字以内"
-}`;
+  "summary": "<string>"
+}
+
+说明：
+- summary 为剧情总结文本，800-1000 字，请根据对话历史详细归纳，不要套用示例值`;
 
 // 辅助：生成格式提示文本
 function fmt(schema) {
@@ -143,6 +153,14 @@ ${CHARACTER_RULES}
 
 ${fmt(CHARACTER_SCHEMA)}`;
 
+// ── 关键角色设定 ──
+const KEY_CHARACTER_INSTRUCTION = `${BASE_INTRO}
+现在我们要创建一个关键角色的人物设定。该角色不是主角，而是故事中的重要配角（可能是冒险伙伴、关键NPC、对手等）。请根据用户描述、世界观背景和主角设定，为该角色创建完整的人物档案。该角色应具备合理动机和背景，能够与主角产生有意义的互动和剧情关联。
+
+${CHARACTER_RULES}
+
+${fmt(CHARACTER_SCHEMA)}`;
+
 // ── 故事开幕 ──
 const STORY_OPENING_INSTRUCTION = `${BASE_INTRO}
 现在，请为我撰写一个符合设定、有代入感的跑团故事开幕。
@@ -169,7 +187,7 @@ ${fmt(NARRATIVE_SCHEMA)}`;
 
 // ── 历史总结 ──
 const SUMMARY_INSTRUCTION = `你是跑团KP，现在需要帮我总结迄今剧情。你给出的总结要保证自己后续
-可以通过该总结正常推进跑团进程，保证故事的合理性，暗示故事可能的伏笔。
+可以通过该总结正常推进跑团进程，保证故事的合理性，暗示故事可能的伏笔。总结请控制在 800-1000 字。
 
 ${fmt(SUMMARY_SCHEMA)}`;
 
@@ -177,6 +195,7 @@ ${fmt(SUMMARY_SCHEMA)}`;
 export const FLOW_TEMPERATURE = {
   [FlowType.WORLD_GEN]: 0.3,
   [FlowType.CHARACTER_GEN]: 0.2,
+  [FlowType.KEY_CHARACTER_GEN]: 0.2,
   [FlowType.STORY_OPENING]: 0.7,
   [FlowType.NARRATION_I]: 0.8,
   [FlowType.NARRATION_II]: 0.7,
@@ -186,10 +205,11 @@ export const FLOW_TEMPERATURE = {
 export const FLOW_MAX_TOKENS = {
   [FlowType.WORLD_GEN]: 1024,
   [FlowType.CHARACTER_GEN]: 4096,
+  [FlowType.KEY_CHARACTER_GEN]: 4096,
   [FlowType.STORY_OPENING]: 2048,
   [FlowType.NARRATION_I]: 4096,
   [FlowType.NARRATION_II]: 4096,
-  [FlowType.HISTORY_SUMMARY]: 800,
+  [FlowType.HISTORY_SUMMARY]: 3000,
 };
 
 // ── thinking 模式配置（DeepSeek V3.2+ 支持） ──
@@ -197,6 +217,7 @@ export const FLOW_MAX_TOKENS = {
 export const FLOW_THINKING = {
   [FlowType.WORLD_GEN]: false,
   [FlowType.CHARACTER_GEN]: false,
+  [FlowType.KEY_CHARACTER_GEN]: false,
   [FlowType.STORY_OPENING]: true,
   [FlowType.NARRATION_I]: true,
   [FlowType.NARRATION_II]: true,
@@ -208,6 +229,7 @@ export const FLOW_THINKING = {
 export const FLOW_STOP = {
   [FlowType.WORLD_GEN]: null,
   [FlowType.CHARACTER_GEN]: null,
+  [FlowType.KEY_CHARACTER_GEN]: null,
   [FlowType.STORY_OPENING]: null,
   [FlowType.NARRATION_I]: null,
   [FlowType.NARRATION_II]: null,
@@ -218,6 +240,7 @@ export const FLOW_STOP = {
 export const FLOW_REQUIRED_FIELD = {
   [FlowType.WORLD_GEN]: 'world_description',
   [FlowType.CHARACTER_GEN]: 'character_card',
+  [FlowType.KEY_CHARACTER_GEN]: 'character_card',
   [FlowType.STORY_OPENING]: 'narration',
   [FlowType.NARRATION_I]: 'narration',
   [FlowType.NARRATION_II]: 'narration',
@@ -227,6 +250,7 @@ export const FLOW_REQUIRED_FIELD = {
 const templates = {
   [FlowType.WORLD_GEN]: { systemInstruction: WORLD_INSTRUCTION },
   [FlowType.CHARACTER_GEN]: { systemInstruction: CHARACTER_INSTRUCTION },
+  [FlowType.KEY_CHARACTER_GEN]: { systemInstruction: KEY_CHARACTER_INSTRUCTION },
   [FlowType.STORY_OPENING]: { systemInstruction: STORY_OPENING_INSTRUCTION },
   [FlowType.NARRATION_I]: { systemInstruction: NARRATION_I_INSTRUCTION },
   [FlowType.NARRATION_II]: { systemInstruction: NARRATION_II_INSTRUCTION },

@@ -135,11 +135,15 @@ export class GameUIController {
     this.sendButton = document.getElementById('send-button');
     this.optionsBar = document.getElementById('options-bar');
     this.phaseLabel = document.getElementById('phase-label');
-    this.worldPanel = document.getElementById('world-settings');
+    this.worldPanel = document.getElementById('world-info');
+    this.protagonistInfo = document.getElementById('protagonist-info');
     this.protagonistPanel = document.getElementById('protagonist-settings');
+    this.protagonistEditArea = document.getElementById('protagonist-edit-area');
+    this.protagonistActions = document.querySelector('.sidebar-protagonist-actions');
     this.locationsPanel = document.getElementById('locations-panel');
     this.npcsPanel = document.getElementById('npcs-panel');
     this.inventoryPanel = document.getElementById('inventory-panel');
+    this.keyCharactersPanel = document.getElementById('key-characters-panel');
     this.actionButtons = document.getElementById('action-buttons');
     this.addNpcButton = document.getElementById('btn-add-npc');
     this.npcModalBackdrop = document.getElementById('npc-modal-backdrop');
@@ -156,6 +160,17 @@ export class GameUIController {
     this.godseyePanel = document.getElementById('godseye-panel');
     this.godseyeContent = document.getElementById('godseye-content');
     this._godseyeOpen = false;
+
+    // 详情面板
+    this.detailPanel = document.getElementById('detail-panel');
+    this.detailPanelTitle = document.getElementById('detail-panel-title');
+    this.detailPanelContent = document.getElementById('detail-panel-content');
+    this.detailPanelClose = document.getElementById('detail-panel-close');
+    this.detailPanelHeader = document.getElementById('detail-panel-header');
+    this._detailDrag = null;
+
+    // 详情面板编辑状态
+    this._editing = null;  // { type, index }
 
     this._restoreTheme();
     this._buildSessionPanel();
@@ -216,6 +231,15 @@ export class GameUIController {
     document.getElementById('btn-open-story').addEventListener('click', () =>
       this._openStory()
     );
+    document.getElementById('btn-enter-key-character').addEventListener('click', () =>
+      this._enterKeyCharacter()
+    );
+    document.getElementById('btn-save-key-character').addEventListener('click', () =>
+      this._saveKeyCharacter()
+    );
+    document.getElementById('btn-invite-next-key-char').addEventListener('click', () =>
+      this._inviteNextKeyCharacter()
+    );
     document.getElementById('btn-save-protagonist').addEventListener('click', () =>
       this._saveProtagonistEdit()
     );
@@ -240,9 +264,42 @@ export class GameUIController {
       this._saveNpcFromModal();
     });
     this.npcsPanel.addEventListener('click', (event) => {
-      const button = event.target.closest('[data-npc-index]');
+      const button = event.target.closest('button[data-npc-index]');
       if (!button) return;
       this._openNpcModal(Number(button.dataset.npcIndex));
+    });
+
+    // 详情面板关闭
+    this.detailPanelClose.addEventListener('click', () => this._closeDetailPanel());
+    // 详情面板拖动
+    this._initDetailPanelDrag();
+    // 侧边栏点击委托（查看详情 / 编辑 / 删除 / 新增）
+    document.getElementById('sidebar').addEventListener('click', (event) => {
+      // 删除按钮
+      const delBtn = event.target.closest('.sbb-delete');
+      if (delBtn) { this._handleDelete(delBtn); return; }
+      // 编辑按钮
+      const editBtn = event.target.closest('.sbb-edit');
+      if (editBtn) { this._openEditInDetail(editBtn); return; }
+      // 新增按钮
+      const addBtn = event.target.closest('.sidebar-add-btn');
+      if (addBtn) { this._handleAdd(addBtn.dataset.add); return; }
+      // 名称点击 → 查看详情
+      const nameBtn = event.target.closest('.sidebar-clickable');
+      if (!nameBtn || nameBtn.classList.contains('empty')) return;
+      this._openDetailByEvent(nameBtn);
+    });
+    // 主角编辑按钮
+    document.getElementById('btn-edit-protagonist').addEventListener('click', () =>
+      this._openProtagonistEdit()
+    );
+    document.getElementById('btn-save-protagonist-edit').addEventListener('click', () =>
+      this._saveProtagonistEdit()
+    );
+    // 详情面板内保存按钮
+    this.detailPanel.addEventListener('click', (event) => {
+      const saveBtn = event.target.closest('#detail-panel-save');
+      if (saveBtn) { this._saveFromDetailPanel(); }
     });
   }
 
@@ -575,6 +632,14 @@ export class GameUIController {
   async _openStory() {
     if (this.session?.openingDone) return;
 
+    // 如果有关键角色设定阶段，先弹出确认
+    if (this.session.phase === 'KEY_CHARACTER_SETTING' ||
+        (this.session.phase === 'CHARACTER_SETTING' && this.session.keyCharacters?.length > 0)) {
+      const { count, message } = await apiClient.getStoryOpenConfirm(this.session);
+      const confirmed = window.confirm(message);
+      if (!confirmed) return;
+    }
+
     this._setInputLocked(true);
     this._showWaiting();
     document.getElementById('btn-open-story').disabled = true;
@@ -644,10 +709,58 @@ export class GameUIController {
       );
       this.session = session;
       this._appendMessage('主角设定已手动保存。', 'system');
+      this.protagonistEditArea.style.display = 'none';
+      document.getElementById('btn-save-protagonist-edit').style.display = 'none';
       this._updateUI();
       await this._persistSession();
     } catch (err) {
       this._appendMessage(`保存失败: ${err.message}`, 'error');
+    }
+  }
+
+  // ── 关键角色 ──
+
+  async _enterKeyCharacter() {
+    try {
+      const { session, guidance } = await apiClient.enterKeyCharacterSetting(
+        this.session
+      );
+      this.session = session;
+      this._appendMessage(guidance, 'system');
+      this._updateUI();
+      await this._persistSession();
+    } catch (err) {
+      this._appendMessage(`进入关键角色设定失败: ${err.message}`, 'error');
+    }
+  }
+
+  async _saveKeyCharacter() {
+    try {
+      const { session, message, nextGuidance } =
+        await apiClient.saveKeyCharacter(this.session);
+      this.session = session;
+      this._appendMessage(message, 'system');
+      if (nextGuidance) {
+        this._appendMessage(nextGuidance, 'system');
+      }
+      this._updateUI();
+      await this._persistSession();
+    } catch (err) {
+      this._appendMessage(`保存关键角色失败: ${err.message}`, 'error');
+    }
+  }
+
+  async _inviteNextKeyCharacter() {
+    try {
+      const { session, guidance } = await apiClient.inviteNextKeyCharacter(
+        this.session
+      );
+      this.session = session;
+      this._appendMessage(guidance, 'system');
+      this._updateUI();
+      await this._persistSession();
+    } catch (err) {
+      this._appendMessage(`邀请下一位角色失败: ${err.message}`, 'error');
     }
   }
 
@@ -769,40 +882,409 @@ export class GameUIController {
     if (!this.session) return;
 
     this.phaseLabel.textContent = `阶段: ${this.session.phase} | 状态: ${this.session.subState}`;
-    this.worldPanel.value = this.session.worldSettings || '';
-    this.protagonistPanel.value = this.session.protagonist || '';
 
+    // 世界观 —— 紧凑模式
+    if (this.session.worldSettings) {
+      this.worldPanel.innerHTML = `<span class="sidebar-label">世界观</span> <span class="sidebar-value">已设定 ✓</span> <button class="sidebar-item-action sbb-edit" data-detail="world">✎</button>`;
+      this.worldPanel.classList.remove('empty');
+    } else {
+      this.worldPanel.innerHTML = '尚未设定…';
+      this.worldPanel.classList.add('empty');
+    }
+
+    // 主角设定 —— 紧凑模式 + 编辑按钮
+    const protag = this.session.protagonist || '';
+    const protagName = this._extractName(protag);
+    if (protag) {
+      this.protagonistInfo.innerHTML = `<span class="sidebar-label">主角</span> <span class="sidebar-value">${escapeHtml(protagName)}</span> <button class="sidebar-item-action sbb-edit" data-detail="protagonist">✎</button>`;
+      this.protagonistInfo.classList.remove('empty');
+      this.protagonistActions.style.display = 'flex';
+    } else {
+      this.protagonistInfo.innerHTML = '尚未设定…';
+      this.protagonistInfo.classList.add('empty');
+      this.protagonistActions.style.display = 'none';
+      this.protagonistEditArea.style.display = 'none';
+    }
+
+    // 地点 —— 名称 + 编辑/删除
     this.locationsPanel.innerHTML = (this.session.locations || [])
       .map(
-        (l) =>
-          `<div class="sidebar-item"><strong>${escapeHtml(l.name)}</strong>${escapeHtml(l.description)}</div>`
+        (l, i) =>
+          `<div class="sidebar-item-row">📍 <span class="sidebar-clickable" data-detail="location" data-location-name="${escapeHtml(l.name)}">${escapeHtml(l.name)}</span><button class="sidebar-item-action sbb-edit" data-edit-location="${i}">✎</button><button class="sidebar-item-action sbb-delete" data-delete-location="${i}">✕</button></div>`
       )
-      .join('');
+      .join('') + '<button class="sidebar-add-btn" data-add="location">+ 新增地点</button>';
 
+    // NPC —— 名称 + 编辑/删除
     this.npcsPanel.innerHTML = (this.session.npcs || [])
       .map(
-        (n, index) =>
-          `<div class="sidebar-item">
-            <div class="sidebar-item-head">
-              <strong>${escapeHtml(n.name)}</strong>
-              <button class="sidebar-item-action" type="button" data-npc-index="${index}">编辑</button>
-            </div>
-            ${escapeHtml(n.description)}
-          </div>`
+        (n, i) =>
+          `<div class="sidebar-item-row">👤 <span class="sidebar-clickable" data-detail="npc" data-npc-index="${i}">${escapeHtml(n.name)}</span><button class="sidebar-item-action sbb-edit" data-edit-npc="${i}">✎</button><button class="sidebar-item-action sbb-delete" data-delete-npc="${i}">✕</button></div>`
       )
-      .join('');
+      .join('') + '<button class="sidebar-add-btn" data-add="npc">+ 新增 NPC</button>';
 
+    // 物品 —— 名称 + 编辑/删除
     this.inventoryPanel.innerHTML = (this.session.inventory || [])
       .map(
-        (i) =>
-          `<div class="sidebar-item"><strong>${escapeHtml(i.name)}</strong> (${escapeHtml(i.status)})<br>${escapeHtml(i.description)}</div>`
+        (i, idx) =>
+          `<div class="sidebar-item-row">📦 <span class="sidebar-clickable" data-detail="inventory" data-item-name="${escapeHtml(i.name)}">${escapeHtml(i.name)}</span><button class="sidebar-item-action sbb-edit" data-edit-item="${idx}">✎</button><button class="sidebar-item-action sbb-delete" data-delete-item="${idx}">✕</button></div>`
       )
-      .join('');
+      .join('') + '<button class="sidebar-add-btn" data-add="item">+ 新增物品</button>';
+
+    // 关键角色 —— 名称 + 编辑/删除
+    const keyChars = this.session.keyCharacters || [];
+    this.keyCharactersPanel.innerHTML = keyChars.length > 0
+      ? keyChars
+          .map(
+            (c, idx) => {
+              const name = this._extractName(c) || `角色${idx + 1}`;
+              return `<div class="sidebar-item-row">👥 <span class="sidebar-clickable" data-detail="keycharacter" data-keychar-index="${idx}">${escapeHtml(name)}</span><button class="sidebar-item-action sbb-edit" data-edit-keychar="${idx}">✎</button><button class="sidebar-item-action sbb-delete" data-delete-keychar="${idx}">✕</button></div>`;
+            }
+          )
+          .join('')
+      : '<div class="sidebar-clickable empty" style="font-size:12px;">暂无已邀请的关键角色</div>';
 
     this._syncInputControls();
     this._renderOptionButtons();
     this._updateActionButtons();
   }
+
+  /** 从角色卡文本中提取姓名 */
+  _extractName(characterText) {
+    if (!characterText) return '';
+    const m = characterText.match(/姓名[：:]\s*(.+)/);
+    return m ? m[1].trim() : '';
+  }
+
+  /** 将角色卡/世界观纯文本渲染为 HTML（复用聊天区的 kp-block 风格） */
+  _renderDetailHtml(plainText) {
+    if (!plainText) return '暂无内容';
+    return `<div class="kp-block">${escapeHtml(plainText).replace(/\n/g, '<br>')}</div>`;
+  }
+
+  // ── 详情面板 ──
+  /** 打开浮动详情面板 */
+  _openDetailPanel(type) {
+    let title = '';
+    let content = '';
+
+    switch (type) {
+      case 'world':
+        title = '世界观与背景';
+        content = this._renderDetailHtml(this.session.worldSettings);
+        break;
+      case 'protagonist':
+        title = '主角设定';
+        content = this._renderDetailHtml(this.session.protagonist);
+        break;
+      case 'keycharacter': {
+        // 通过 data-keychar-index 获取（由事件触发时不可用此分支，需通过事件对象）
+        // 这里仅处理通过 data-detail="keycharacter" 直接调用的情况
+        break;
+      }
+      default:
+        break;
+    }
+
+    this.detailPanelTitle.textContent = title;
+    this.detailPanelContent.innerHTML = content;
+    this.detailPanel.style.display = 'flex';
+  }
+
+  /** 通过事件对象打开详情（支持地点/NPC/物品/关键角色等带索引的类型） */
+  _openDetailByEvent(el) {
+    const type = el.dataset.detail;
+    if (!type) return;
+
+    let title = '';
+    let content = '';
+
+    switch (type) {
+      case 'location': {
+        const name = el.dataset.locationName;
+        const loc = (this.session.locations || []).find(l => l.name === name);
+        if (!loc) return;
+        title = `地点：${escapeHtml(loc.name)}`;
+        content = this._renderDetailHtml(loc.description);
+        break;
+      }
+      case 'npc': {
+        const idx = Number(el.dataset.npcIndex);
+        const npc = (this.session.npcs || [])[idx];
+        if (!npc) return;
+        title = `NPC：${escapeHtml(npc.name)}`;
+        content = this._renderDetailHtml(npc.description);
+        break;
+      }
+      case 'inventory': {
+        const name = el.dataset.itemName;
+        const item = (this.session.inventory || []).find(i => i.name === name);
+        if (!item) return;
+        title = `物品：${escapeHtml(item.name)}`;
+        content = this._renderDetailHtml(
+          `状态：${item.status || '未知'}\n\n${item.description || ''}`
+        );
+        break;
+      }
+      case 'keycharacter': {
+        const idx = Number(el.dataset.keycharIndex);
+        const kc = (this.session.keyCharacters || [])[idx];
+        if (!kc) return;
+        const kcName = this._extractName(kc) || `角色${idx + 1}`;
+        title = `关键角色：${escapeHtml(kcName)}`;
+        content = this._renderDetailHtml(kc);
+        break;
+      }
+      case 'world':
+        title = '世界观与背景';
+        content = this._renderDetailHtml(this.session.worldSettings);
+        break;
+      case 'protagonist':
+        title = '主角设定';
+        content = this._renderDetailHtml(this.session.protagonist);
+        break;
+      default:
+        return;
+    }
+
+    this.detailPanelTitle.textContent = title;
+    this.detailPanelContent.innerHTML = content;
+    this.detailPanel.style.display = 'flex';
+  }
+
+  // ── 主角编辑 ──
+  _openProtagonistEdit() {
+    this.protagonistPanel.value = this.session.protagonist || '';
+    this.protagonistEditArea.style.display = 'block';
+    document.getElementById('btn-save-protagonist-edit').style.display = 'inline-block';
+  }
+
+  // ── 侧边栏增删改 ──
+
+  async _handleDelete(btn) {
+    // 优先匹配精确定义的属性
+    const idx = (s) => btn.dataset[s] !== undefined ? Number(btn.dataset[s]) : null;
+    let type, index;
+
+    index = idx('deleteLocation');
+    if (index !== null) { type = 'location'; }
+
+    if (type === undefined) {
+      index = idx('deleteNpc');
+      if (index !== null) { type = 'npc'; }
+    }
+
+    if (type === undefined) {
+      index = idx('deleteItem');
+      if (index !== null) { type = 'item'; }
+    }
+
+    if (type === undefined) {
+      index = idx('deleteKeychar');
+      if (index !== null) { type = 'keycharacter'; }
+    }
+
+    if (!type) return;
+
+    if (!confirm('确定要删除该项吗？')) return;
+
+    try {
+      let result;
+      switch (type) {
+        case 'location': result = await apiClient.deleteLocation(this.session, index); break;
+        case 'npc': result = await apiClient.deleteNpc(this.session, index); break;
+        case 'item': result = await apiClient.deleteItem(this.session, index); break;
+        case 'keycharacter': result = await apiClient.deleteKeyCharacter(this.session, index); break;
+      }
+      if (result) {
+        this.session = result.session;
+        this._closeDetailPanel();
+        this._updateUI();
+        await this._persistSession();
+      }
+    } catch (err) {
+      this._appendMessage(`删除失败: ${err.message}`, 'error');
+    }
+  }
+
+  _openEditInDetail(btn) {
+    let type, index;
+
+    if (btn.dataset.editLocation !== undefined) { type = 'location'; index = Number(btn.dataset.editLocation); }
+    else if (btn.dataset.editNpc !== undefined) { type = 'npc'; index = Number(btn.dataset.editNpc); }
+    else if (btn.dataset.editItem !== undefined) { type = 'item'; index = Number(btn.dataset.editItem); }
+    else if (btn.dataset.editKeychar !== undefined) { type = 'keycharacter'; index = Number(btn.dataset.editKeychar); }
+    else if (btn.dataset.detail) { type = btn.dataset.detail; index = -1; }
+
+    if (!type) return;
+
+    this._editing = { type, index };
+    this.detailPanelTitle.textContent = this._getEditTitle(type, index);
+    this.detailPanelContent.innerHTML = this._buildEditForm(type, index);
+    this.detailPanel.style.display = 'flex';
+  }
+
+  _getEditTitle(type, index) {
+    const isNew = (index === -1);
+    const labels = {
+      location: isNew ? '新增地点' : '编辑地点',
+      npc: isNew ? '新增 NPC' : '编辑 NPC',
+      item: isNew ? '新增物品' : '编辑物品',
+      keycharacter: isNew ? '新增关键角色' : '编辑关键角色',
+      world: '编辑世界观',
+      protagonist: '编辑主角设定',
+    };
+    return labels[type] || '编辑';
+  }
+
+  _buildEditForm(type, index) {
+    const isNew = (index === -1);
+
+    switch (type) {
+      case 'location': {
+        const loc = !isNew ? (this.session.locations || [])[index] : { name: '', description: '' };
+        return `<label>名称 <input id="edit-name" type="text" value="${escapeHtml(loc?.name || '')}"></label>
+          <label>描述 <textarea id="edit-desc" rows="4">${escapeHtml(loc?.description || '')}</textarea></label>
+          <button id="detail-panel-save" type="button">保存</button>`;
+      }
+      case 'npc': {
+        const npc = !isNew ? (this.session.npcs || [])[index] : { name: '', description: '' };
+        return `<label>名称 <input id="edit-name" type="text" value="${escapeHtml(npc?.name || '')}"></label>
+          <label>描述 <textarea id="edit-desc" rows="4">${escapeHtml(npc?.description || '')}</textarea></label>
+          <button id="detail-panel-save" type="button">保存</button>`;
+      }
+      case 'item': {
+        const item = !isNew ? (this.session.inventory || [])[index] : { name: '', status: '已获得', description: '' };
+        return `<label>名称 <input id="edit-name" type="text" value="${escapeHtml(item?.name || '')}"></label>
+          <label>状态 <input id="edit-status" type="text" value="${escapeHtml(item?.status || '已获得')}"></label>
+          <label>描述 <textarea id="edit-desc" rows="4">${escapeHtml(item?.description || '')}</textarea></label>
+          <button id="detail-panel-save" type="button">保存</button>`;
+      }
+      case 'keycharacter': {
+        const kc = !isNew ? (this.session.keyCharacters || [])[index] : '';
+        return `<label>角色卡文本 <textarea id="edit-desc" rows="12">${escapeHtml(kc || '')}</textarea></label>
+          <button id="detail-panel-save" type="button">保存</button>`;
+      }
+      case 'world': {
+        return `<label>世界观描述 <textarea id="edit-desc" rows="8">${escapeHtml(this.session.worldSettings || '')}</textarea></label>
+          <button id="detail-panel-save" type="button">保存</button>`;
+      }
+      case 'protagonist': {
+        return `<label>主角设定 <textarea id="edit-desc" rows="12">${escapeHtml(this.session.protagonist || '')}</textarea></label>
+          <button id="detail-panel-save" type="button">保存</button>`;
+      }
+      default:
+        return '';
+    }
+  }
+
+  async _saveFromDetailPanel() {
+    if (!this._editing) return;
+    const { type, index } = this._editing;
+
+    try {
+      let result;
+      switch (type) {
+        case 'world': {
+          const text = document.getElementById('edit-desc')?.value ?? '';
+          result = await apiClient.updateWorldSettings(this.session, text);
+          break;
+        }
+        case 'protagonist': {
+          const text = document.getElementById('edit-desc')?.value ?? '';
+          result = await apiClient.updateProtagonist(this.session, text);
+          break;
+        }
+        case 'location': {
+          const name = document.getElementById('edit-name')?.value ?? '';
+          const desc = document.getElementById('edit-desc')?.value ?? '';
+          result = await apiClient.upsertLocation(this.session, index, { name, description: desc });
+          break;
+        }
+        case 'npc': {
+          const name = document.getElementById('edit-name')?.value ?? '';
+          const desc = document.getElementById('edit-desc')?.value ?? '';
+          result = await apiClient.upsertNpc(this.session, index, { name, description: desc });
+          break;
+        }
+        case 'item': {
+          const name = document.getElementById('edit-name')?.value ?? '';
+          const status = document.getElementById('edit-status')?.value ?? '已获得';
+          const desc = document.getElementById('edit-desc')?.value ?? '';
+          result = await apiClient.upsertItem(this.session, index, { name, status, description: desc });
+          break;
+        }
+        case 'keycharacter': {
+          const text = document.getElementById('edit-desc')?.value ?? '';
+          result = await apiClient.upsertKeyCharacter(this.session, index, text);
+          break;
+        }
+      }
+
+      if (result) {
+        this.session = result.session;
+        this._editing = null;
+        this._closeDetailPanel();
+        this._updateUI();
+        await this._persistSession();
+      }
+    } catch (err) {
+      this._appendMessage(`保存失败: ${err.message}`, 'error');
+    }
+  }
+
+  _handleAdd(type) {
+    this._editing = { type, index: -1 };
+    this.detailPanelTitle.textContent = this._getEditTitle(type, -1);
+    this.detailPanelContent.innerHTML = this._buildEditForm(type, -1);
+    this.detailPanel.style.display = 'flex';
+  }
+
+  // ── 详情面板关闭（优化） ──
+  _closeDetailPanel() {
+    this.detailPanel.style.display = 'none';
+    this.detailPanelTitle.textContent = '';
+    this.detailPanelContent.innerHTML = '';
+    this._editing = null;
+  }
+
+  // ── 详情面板拖动 ──
+  _initDetailPanelDrag() {
+    const panel = this.detailPanel;
+    const header = this.detailPanelHeader;
+    let startX, startY, initialLeft, initialTop;
+    let dragging = false;
+
+    header.addEventListener('mousedown', (e) => {
+      if (e.target === this.detailPanelClose) return;
+      dragging = true;
+      startX = e.clientX;
+      startY = e.clientY;
+      const rect = panel.getBoundingClientRect();
+      initialLeft = rect.left;
+      initialTop = rect.top;
+      panel.style.transition = 'none';
+      document.body.style.userSelect = 'none';
+      e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!dragging) return;
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      panel.style.left = `${initialLeft + dx}px`;
+      panel.style.top = `${initialTop + dy}px`;
+      panel.style.right = 'auto';
+    });
+
+    document.addEventListener('mouseup', () => {
+      if (!dragging) return;
+      dragging = false;
+      panel.style.transition = '';
+      document.body.style.userSelect = '';
+    });
+  }
+
+  /** 侧边栏点击处理（委托）—— 该逻辑已合并到 _bindEvents 内联 */
 
   _renderOptionButtons() {
     this.optionsBar.innerHTML = '';
@@ -848,6 +1330,9 @@ export class GameUIController {
 
   _updateActionButtons() {
     const phase = this.session.phase;
+    const keyChars = this.session.keyCharacters || [];
+    const keyCharCount = keyChars.filter(Boolean).length;
+
     document.getElementById('btn-save-world').style.display =
       phase === 'WORLD_SETTING' ? 'inline-block' : 'none';
     document.getElementById('btn-enter-character').style.display =
@@ -857,9 +1342,30 @@ export class GameUIController {
     document.getElementById('btn-save-character').style.display =
       phase === 'CHARACTER_SETTING' ? 'inline-block' : 'none';
 
+    // 关键角色按钮
+    const enterKeyCharBtn = document.getElementById('btn-enter-key-character');
+    const saveKeyCharBtn = document.getElementById('btn-save-key-character');
+    const inviteNextBtn = document.getElementById('btn-invite-next-key-char');
+
+    if (phase === 'CHARACTER_SETTING' && this.session.protagonist) {
+      enterKeyCharBtn.style.display = 'inline-block';
+      saveKeyCharBtn.style.display = 'none';
+      inviteNextBtn.style.display = 'none';
+    } else if (phase === 'KEY_CHARACTER_SETTING') {
+      enterKeyCharBtn.style.display = 'none';
+      saveKeyCharBtn.style.display = 'inline-block';
+      inviteNextBtn.style.display =
+        keyCharCount > 0 && keyCharCount < 3 ? 'inline-block' : 'none';
+    } else {
+      enterKeyCharBtn.style.display = 'none';
+      saveKeyCharBtn.style.display = 'none';
+      inviteNextBtn.style.display = 'none';
+    }
+
     const openBtn = document.getElementById('btn-open-story');
     const canOpen =
-      phase === 'CHARACTER_SETTING' && this.session.protagonist;
+      (phase === 'CHARACTER_SETTING' && this.session.protagonist) ||
+      phase === 'KEY_CHARACTER_SETTING';
     openBtn.style.display = canOpen ? 'inline-block' : 'none';
     openBtn.disabled = this.session.openingDone;
   }

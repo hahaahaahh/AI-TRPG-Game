@@ -22,6 +22,27 @@ export class PhaseManager {
           return { allowed: false, reason: '当前不在世界设定阶段' };
         }
         return { allowed: true };
+      case GameAction.ENTER_KEY_CHARACTER_SETTING:
+        if (!session.protagonist) {
+          return { allowed: false, reason: '请先保存主角设定' };
+        }
+        if (session.phase !== Phase.CHARACTER_SETTING) {
+          return { allowed: false, reason: '当前不在人物设定阶段' };
+        }
+        return { allowed: true };
+      case GameAction.SAVE_KEY_CHARACTER:
+        if (session.phase !== Phase.KEY_CHARACTER_SETTING) {
+          return { allowed: false, reason: '当前不在关键角色设定阶段' };
+        }
+        return { allowed: true };
+      case GameAction.INVITE_NEXT_KEY_CHARACTER:
+        if (session.phase !== Phase.KEY_CHARACTER_SETTING) {
+          return { allowed: false, reason: '当前不在关键角色设定阶段' };
+        }
+        if (session.keyCharacterIndex >= 3) {
+          return { allowed: false, reason: '已达到3位关键角色上限' };
+        }
+        return { allowed: true };
       case GameAction.SAVE_WORLD:
         if (session.phase !== Phase.WORLD_SETTING) {
           return { allowed: false, reason: '当前不在世界设定阶段' };
@@ -39,8 +60,8 @@ export class PhaseManager {
         if (session.openingDone) {
           return { allowed: false, reason: '故事已开幕' };
         }
-        if (session.phase !== Phase.CHARACTER_SETTING) {
-          return { allowed: false, reason: '当前不在人物设定阶段' };
+        if (session.phase !== Phase.CHARACTER_SETTING && session.phase !== Phase.KEY_CHARACTER_SETTING) {
+          return { allowed: false, reason: '当前不在可开幕的阶段' };
         }
         return { allowed: true };
       case GameAction.SEND_MESSAGE:
@@ -67,6 +88,8 @@ export class PhaseManager {
         return FlowType.WORLD_GEN;
       case Phase.CHARACTER_SETTING:
         return FlowType.CHARACTER_GEN;
+      case Phase.KEY_CHARACTER_SETTING:
+        return FlowType.KEY_CHARACTER_GEN;
       case Phase.STORY_PLAY:
         if (isOpening) return FlowType.STORY_OPENING;
         return FlowType.NARRATION_I;
@@ -79,6 +102,10 @@ export class PhaseManager {
     switch (event) {
       case 'ENTER_CHARACTER_SETTING':
         session.phase = Phase.CHARACTER_SETTING;
+        break;
+      case 'ENTER_KEY_CHARACTER_SETTING':
+        session.phase = Phase.KEY_CHARACTER_SETTING;
+        session.keyCharacterIndex = 0;
         break;
       case 'OPEN_STORY':
         session.phase = Phase.STORY_PLAY;

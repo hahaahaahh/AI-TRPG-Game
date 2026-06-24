@@ -65,6 +65,89 @@ export class ApiClient {
     return res.json();
   }
 
+  // ── 关键角色 ──
+
+  async enterKeyCharacterSetting(session) {
+    const res = await fetch(`${API_BASE}/sessions/${session.id}/enter-key-character`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session }),
+    });
+    if (!res.ok) throw new Error(await this._errorText(res));
+    return res.json();
+  }
+
+  async saveKeyCharacter(session) {
+    const res = await fetch(`${API_BASE}/sessions/${session.id}/save-key-character`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session }),
+    });
+    if (!res.ok) throw new Error(await this._errorText(res));
+    return res.json();
+  }
+
+  async inviteNextKeyCharacter(session) {
+    const res = await fetch(`${API_BASE}/sessions/${session.id}/invite-next-key-character`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session }),
+    });
+    if (!res.ok) throw new Error(await this._errorText(res));
+    return res.json();
+  }
+
+  async getStoryOpenConfirm(session) {
+    const res = await fetch(`${API_BASE}/sessions/${session.id}/open-story-confirm`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session }),
+    });
+    if (!res.ok) throw new Error(await this._errorText(res));
+    return res.json();
+  }
+
+  // ── 设定增删改 ──
+
+  async updateWorldSettings(session, worldSettings) {
+    const res = await fetch(`${API_BASE}/sessions/${session.id}/world-settings`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session, worldSettings }),
+    });
+    if (!res.ok) throw new Error(await this._errorText(res));
+    return res.json();
+  }
+
+  async _patchEntity(session, path, index, data) {
+    const res = await fetch(`${API_BASE}/sessions/${session.id}/${path}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session, index, data }),
+    });
+    if (!res.ok) throw new Error(await this._errorText(res));
+    return res.json();
+  }
+
+  async _deleteEntity(session, path, index) {
+    const res = await fetch(`${API_BASE}/sessions/${session.id}/${path}/${index}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session }),
+    });
+    if (!res.ok) throw new Error(await this._errorText(res));
+    return res.json();
+  }
+
+  async upsertLocation(session, index, data) { return this._patchEntity(session, 'locations', index, data); }
+  async deleteLocation(session, index) { return this._deleteEntity(session, 'locations', index); }
+  async upsertNpc(session, index, data) { return this._patchEntity(session, 'npcs', index, data); }
+  async deleteNpc(session, index) { return this._deleteEntity(session, 'npcs', index); }
+  async upsertItem(session, index, data) { return this._patchEntity(session, 'items', index, data); }
+  async deleteItem(session, index) { return this._deleteEntity(session, 'items', index); }
+  async upsertKeyCharacter(session, index, data) { return this._patchEntity(session, 'key-characters', index, data); }
+  async deleteKeyCharacter(session, index) { return this._deleteEntity(session, 'key-characters', index); }
+
   async openStory(session, handlers) {
     return this._streamRequest(
       `${API_BASE}/sessions/${session.id}/open-story`,

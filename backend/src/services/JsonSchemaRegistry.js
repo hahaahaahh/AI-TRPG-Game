@@ -257,7 +257,7 @@ const SCHEMAS = {
     properties: {
       summary: {
         type: 'string',
-        description: '总结文本，300字以内',
+        description: '总结文本，800-1000字',
       },
     },
     required: ['summary'],

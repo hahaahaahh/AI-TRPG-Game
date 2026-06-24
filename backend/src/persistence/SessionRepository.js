@@ -33,11 +33,17 @@ function appendSetupLog(log, entries, flowType) {
   }
 }
 
-function rebuildDisplayLog(row, setupHistory, chatRecord, pendingDiceFlow) {
+function rebuildDisplayLog(row, setupHistory, chatRecord, pendingDiceFlow, keyCharSetupHistory) {
   const log = [];
 
   appendSetupLog(log, setupHistory.world, FlowType.WORLD_GEN);
   appendSetupLog(log, setupHistory.character, FlowType.CHARACTER_GEN);
+
+  if (Array.isArray(keyCharSetupHistory)) {
+    for (const bucket of keyCharSetupHistory) {
+      appendSetupLog(log, bucket, FlowType.KEY_CHARACTER_GEN);
+    }
+  }
 
   for (const entry of chatRecord) {
     if (!entry?.content) continue;
@@ -67,6 +73,7 @@ function rowToSession(row) {
     ? parseJson(row.pending_dice_flow, null)
     : null;
   const displayLog = parseJson(row.display_log, []);
+  const keyCharSetupHistory = parseJson(row.key_char_setup_history, []);
 
   return new GameSession({
     id: row.id,
@@ -76,11 +83,14 @@ function rowToSession(row) {
     openingDone: Boolean(row.opening_done),
     worldSettings: row.world_settings,
     protagonist: row.protagonist,
+    keyCharacters: parseJson(row.key_characters, []),
+    keyCharacterIndex: row.key_character_index ?? 0,
     chatRecord,
     setupHistory,
+    keyCharSetupHistory,
     displayLog: displayLog.length > 0
       ? displayLog
-      : rebuildDisplayLog(row, setupHistory, chatRecord, pendingDiceFlow),
+      : rebuildDisplayLog(row, setupHistory, chatRecord, pendingDiceFlow, keyCharSetupHistory),
     optionBuffer: row.option_buffer,
     locations: parseJson(row.locations, []),
     npcs: parseJson(row.npcs, []),
@@ -103,12 +113,14 @@ export class SessionRepository {
       .prepare(
         `INSERT INTO sessions (
           id, title, phase, sub_state, opening_done,
-          world_settings, protagonist, chat_record, setup_history, display_log,
+          world_settings, protagonist, key_characters, key_character_index,
+          chat_record, setup_history, key_char_setup_history, display_log,
           option_buffer, locations, npcs, inventory,
           pending_dice_flow, created_at, updated_at
         ) VALUES (
           ?, ?, ?, ?, 0,
-          '', '', '[]', '{"world":[],"character":[]}', '[]',
+          '', '', '[]', 0,
+          '[]', '{"world":[],"character":[]}', '[]', '[]',
           '', '[]', '[]', '[]',
           NULL, ?, ?
         )`
@@ -140,8 +152,11 @@ export class SessionRepository {
           opening_done = ?,
           world_settings = ?,
           protagonist = ?,
+          key_characters = ?,
+          key_character_index = ?,
           chat_record = ?,
           setup_history = ?,
+          key_char_setup_history = ?,
           display_log = ?,
           option_buffer = ?,
           locations = ?,
@@ -158,8 +173,11 @@ export class SessionRepository {
         session.openingDone ? 1 : 0,
         session.worldSettings,
         session.protagonist,
+        JSON.stringify(session.keyCharacters),
+        session.keyCharacterIndex,
         JSON.stringify(session.chatRecord),
         JSON.stringify(session.setupHistory),
+        JSON.stringify(session.keyCharSetupHistory),
         JSON.stringify(session.displayLog),
         session.optionBuffer,
         JSON.stringify(session.locations),

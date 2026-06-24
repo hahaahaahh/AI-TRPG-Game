@@ -122,10 +122,14 @@ export class EntityUpdater {
   }
 
   applySetupHistory(session, phase, role, content) {
-    const bucket =
-      phase === 'WORLD_SETTING'
-        ? session.setupHistory.world
-        : session.setupHistory.character;
+    let bucket;
+    if (phase === 'WORLD_SETTING') {
+      bucket = session.setupHistory.world;
+    } else if (phase === 'KEY_CHARACTER_SETTING') {
+      bucket = session.getCurrentKeyCharSetupHistory();
+    } else {
+      bucket = session.setupHistory.character;
+    }
     bucket.push({
       role,
       content,

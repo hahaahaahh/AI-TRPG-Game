@@ -106,6 +106,64 @@ export function createGameController({ llmProvider, streamEmitter }) {
     }
   });
 
+  // ── 关键角色设定 ──
+
+  router.post('/sessions/:id/enter-key-character', (req, res) => {
+    try {
+      const session = requireSession(req);
+      const orchestrator = createStatelessOrchestrator({
+        session,
+        llmProvider,
+        streamEmitter,
+      });
+      res.json(orchestrator.enterKeyCharacterSetting(req.params.id));
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  router.post('/sessions/:id/save-key-character', (req, res) => {
+    try {
+      const session = requireSession(req);
+      const orchestrator = createStatelessOrchestrator({
+        session,
+        llmProvider,
+        streamEmitter,
+      });
+      res.json(orchestrator.saveKeyCharacter(req.params.id));
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  router.post('/sessions/:id/invite-next-key-character', (req, res) => {
+    try {
+      const session = requireSession(req);
+      const orchestrator = createStatelessOrchestrator({
+        session,
+        llmProvider,
+        streamEmitter,
+      });
+      res.json(orchestrator.inviteNextKeyCharacter(req.params.id));
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  router.post('/sessions/:id/open-story-confirm', (req, res) => {
+    try {
+      const session = requireSession(req);
+      const orchestrator = createStatelessOrchestrator({
+        session,
+        llmProvider,
+        streamEmitter,
+      });
+      res.json(orchestrator.getStoryOpenConfirmInfo(req.params.id));
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
   router.post('/sessions/:id/open-story', async (req, res) => {
     const streamId = streamEmitter.createStream();
     res.json({ streamId });
@@ -158,6 +216,80 @@ export function createGameController({ llmProvider, streamEmitter }) {
     } catch (err) {
       res.status(400).json({ error: err.message });
     }
+  });
+
+  // ── 设定增删改 ──
+
+  router.patch('/sessions/:id/world-settings', (req, res) => {
+    try {
+      const session = requireSession(req);
+      const orchestrator = createStatelessOrchestrator({ session, llmProvider, streamEmitter });
+      res.json(orchestrator.updateWorldSettings(req.params.id, req.body.worldSettings));
+    } catch (err) { res.status(400).json({ error: err.message }); }
+  });
+
+  router.patch('/sessions/:id/locations', (req, res) => {
+    try {
+      const session = requireSession(req);
+      const orchestrator = createStatelessOrchestrator({ session, llmProvider, streamEmitter });
+      res.json(orchestrator.upsertLocation(req.params.id, req.body.index ?? -1, req.body.data));
+    } catch (err) { res.status(400).json({ error: err.message }); }
+  });
+
+  router.delete('/sessions/:id/locations/:index', (req, res) => {
+    try {
+      const session = requireSession(req);
+      const orchestrator = createStatelessOrchestrator({ session, llmProvider, streamEmitter });
+      res.json(orchestrator.deleteLocation(req.params.id, Number(req.params.index)));
+    } catch (err) { res.status(400).json({ error: err.message }); }
+  });
+
+  router.patch('/sessions/:id/npcs', (req, res) => {
+    try {
+      const session = requireSession(req);
+      const orchestrator = createStatelessOrchestrator({ session, llmProvider, streamEmitter });
+      res.json(orchestrator.upsertNpc(req.params.id, req.body.index ?? -1, req.body.data));
+    } catch (err) { res.status(400).json({ error: err.message }); }
+  });
+
+  router.delete('/sessions/:id/npcs/:index', (req, res) => {
+    try {
+      const session = requireSession(req);
+      const orchestrator = createStatelessOrchestrator({ session, llmProvider, streamEmitter });
+      res.json(orchestrator.deleteNpc(req.params.id, Number(req.params.index)));
+    } catch (err) { res.status(400).json({ error: err.message }); }
+  });
+
+  router.patch('/sessions/:id/items', (req, res) => {
+    try {
+      const session = requireSession(req);
+      const orchestrator = createStatelessOrchestrator({ session, llmProvider, streamEmitter });
+      res.json(orchestrator.upsertItem(req.params.id, req.body.index ?? -1, req.body.data));
+    } catch (err) { res.status(400).json({ error: err.message }); }
+  });
+
+  router.delete('/sessions/:id/items/:index', (req, res) => {
+    try {
+      const session = requireSession(req);
+      const orchestrator = createStatelessOrchestrator({ session, llmProvider, streamEmitter });
+      res.json(orchestrator.deleteItem(req.params.id, Number(req.params.index)));
+    } catch (err) { res.status(400).json({ error: err.message }); }
+  });
+
+  router.patch('/sessions/:id/key-characters', (req, res) => {
+    try {
+      const session = requireSession(req);
+      const orchestrator = createStatelessOrchestrator({ session, llmProvider, streamEmitter });
+      res.json(orchestrator.upsertKeyCharacter(req.params.id, req.body.index ?? -1, req.body.data));
+    } catch (err) { res.status(400).json({ error: err.message }); }
+  });
+
+  router.delete('/sessions/:id/key-characters/:index', (req, res) => {
+    try {
+      const session = requireSession(req);
+      const orchestrator = createStatelessOrchestrator({ session, llmProvider, streamEmitter });
+      res.json(orchestrator.deleteKeyCharacter(req.params.id, Number(req.params.index)));
+    } catch (err) { res.status(400).json({ error: err.message }); }
   });
 
   router.post('/sessions/:id/message', async (req, res) => {

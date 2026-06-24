@@ -659,6 +659,227 @@
             padding: 3px 8px;
         }
 
+        /* ── 侧边栏紧凑条目（可点击查看详情） ── */
+        .sidebar-clickable {
+            padding: 8px 10px;
+            margin-bottom: 4px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-sm);
+            font-size: 13px;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all var(--transition);
+            user-select: none;
+        }
+        .sidebar-clickable:hover {
+            border-color: var(--accent);
+            color: var(--accent-hover);
+            background: var(--bg-hover);
+        }
+        .sidebar-clickable.empty {
+            color: var(--text-muted);
+            font-style: italic;
+            cursor: default;
+        }
+        .sidebar-clickable.empty:hover {
+            border-color: var(--border-subtle);
+            color: var(--text-muted);
+            background: var(--bg-card);
+        }
+        .sidebar-label {
+            font-size: 11px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-right: 4px;
+        }
+        .sidebar-value {
+            color: var(--accent);
+            font-weight: 600;
+        }
+        .sidebar-item-row {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 4px 0;
+            font-size: 13px;
+        }
+        .sidebar-item-row .sidebar-clickable {
+            flex: 1;
+            min-width: 0;
+            padding: 4px 8px;
+            margin-bottom: 0;
+            font-size: 13px;
+        }
+        .sidebar-item-row .sidebar-item-action {
+            flex-shrink: 0;
+            margin-top: 0;
+            padding: 2px 6px;
+            font-size: 10px;
+        }
+        .sbb-delete {
+            color: var(--danger) !important;
+            border-color: transparent !important;
+            background: transparent !important;
+            font-weight: 700;
+        }
+        .sbb-delete:hover {
+            background: var(--danger) !important;
+            color: #fff !important;
+        }
+        .sidebar-add-btn {
+            display: block;
+            width: 100%;
+            padding: 4px 8px;
+            margin-top: 4px;
+            border: 1px dashed var(--border-normal);
+            border-radius: var(--radius-sm);
+            background: transparent;
+            color: var(--text-muted);
+            font-size: 11px;
+            cursor: pointer;
+            text-align: left;
+            font-family: var(--font-sans);
+            transition: all var(--transition);
+        }
+        .sidebar-add-btn:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+        .sidebar-protagonist-actions {
+            display: flex;
+            gap: 6px;
+            margin-top: 4px;
+        }
+        .sidebar-protagonist-actions button {
+            padding: 4px 10px;
+            font-size: 11px;
+        }
+        #protagonist-edit-area {
+            margin-top: 8px;
+        }
+        #protagonist-edit-area textarea {
+            width: 100%;
+            min-height: 300px;
+        }
+
+        /* ── 详情面板（可拖动+可缩放） ── */
+        #detail-panel {
+            display: none;
+            position: fixed;
+            top: 80px;
+            right: 30px;
+            width: 380px;
+            min-width: 280px;
+            min-height: 200px;
+            max-height: 80vh;
+            background: var(--bg-panel);
+            border: 1px solid var(--border-normal);
+            border-radius: var(--radius-lg);
+            box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+            z-index: 1000;
+            flex-direction: column;
+            overflow: hidden;
+            resize: both;
+        }
+        #detail-panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 14px;
+            background: var(--bg-card);
+            border-bottom: 1px solid var(--border-subtle);
+            cursor: move;
+            user-select: none;
+        }
+        #detail-panel-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--accent);
+            font-family: var(--font-mono);
+        }
+        #detail-panel-close {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            font-size: 18px;
+            cursor: pointer;
+            padding: 0 4px;
+            line-height: 1;
+        }
+        #detail-panel-close:hover {
+            color: var(--danger);
+        }
+        #detail-panel-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 14px;
+            font-size: 13px;
+            line-height: 1.7;
+            color: var(--text-primary);
+            font-family: var(--font-serif);
+        }
+        #detail-panel-content .kp-block {
+            margin-bottom: 0;
+        }
+        #detail-panel-content .kp-divider {
+            margin: 10px 0;
+        }
+        #detail-panel-content label {
+            display: block;
+            margin-bottom: 8px;
+            font-size: 12px;
+            color: var(--text-muted);
+            font-family: var(--font-sans);
+        }
+        #detail-panel-content input,
+        #detail-panel-content textarea {
+            display: block;
+            width: 100%;
+            margin-top: 4px;
+            padding: 6px 10px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-normal);
+            border-radius: var(--radius-sm);
+            color: var(--text-primary);
+            font-size: 13px;
+            font-family: var(--font-serif);
+            box-sizing: border-box;
+        }
+        #detail-panel-content input:focus,
+        #detail-panel-content textarea:focus {
+            border-color: var(--accent);
+            outline: none;
+        }
+        #detail-panel-content button {
+            margin-top: 10px;
+            padding: 6px 16px;
+            border: 1px solid var(--accent);
+            border-radius: var(--radius-sm);
+            background: var(--bg-card);
+            color: var(--accent);
+            cursor: pointer;
+            font-size: 13px;
+            font-family: var(--font-sans);
+            transition: all var(--transition);
+        }
+        #detail-panel-content button:hover {
+            background: var(--accent);
+            color: var(--bg-primary);
+        }
+        #detail-panel-resize {
+            position: absolute;
+            bottom: 0;
+            right: 0;
+            width: 16px;
+            height: 16px;
+            cursor: nwse-resize;
+        }
+        body.light #detail-panel {
+            box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+        }
+
         /* ── God's Eye Button ── */
         #btn-godseye {
             padding: 4px 10px;
@@ -856,7 +1077,10 @@
                 <button id="btn-save-world" style="display:none;">存档当前世界观</button>
                 <button id="btn-enter-character" style="display:none;">开启人物设定</button>
                 <button id="btn-save-character" style="display:none;">保存主角设定</button>
-                <button id="btn-open-story" style="display:none;">故事开幕</button>
+                <button id="btn-enter-key-character" style="display:none;">开始其余关键人物设定</button>
+                <button id="btn-save-key-character" style="display:none;">保存当前关键角色</button>
+                <button id="btn-invite-next-key-char" style="display:none;">开始邀请下一位角色</button>
+                <button id="btn-open-story" style="display:none;">直接进入故事开幕</button>
             </div>
             <div id="input-area">
                 <input type="text" id="prompt-input" placeholder="输入你的行动…">
@@ -866,11 +1090,21 @@
 
         <div id="sidebar">
             <h3>世界观与背景</h3>
-            <textarea id="world-settings" readonly placeholder="尚未设定…"></textarea>
+            <div id="world-info" class="sidebar-clickable" data-detail="world"></div>
 
             <h3>主角设定</h3>
-            <textarea id="protagonist-settings" placeholder="尚未设定…"></textarea>
-            <button id="btn-save-protagonist">保存修改</button>
+            <div id="protagonist-info" class="sidebar-clickable" data-detail="protagonist"></div>
+            <div class="sidebar-protagonist-actions" style="display:none;">
+                <button id="btn-edit-protagonist" title="编辑主角">✎ 编辑</button>
+                <button id="btn-save-protagonist" style="display:none;">保存修改</button>
+            </div>
+            <div id="protagonist-edit-area" style="display:none;">
+                <textarea id="protagonist-settings" placeholder="尚未设定…"></textarea>
+                <button id="btn-save-protagonist-edit" style="display:none;">确认保存</button>
+            </div>
+
+            <h3>已邀请的关键角色</h3>
+            <div id="key-characters-panel"></div>
 
             <h3>重要地点</h3>
             <div id="locations-panel"></div>
@@ -891,6 +1125,15 @@
                 <button id="btn-godseye-close">&times;</button>
             </div>
             <div id="godseye-content"></div>
+        </div>
+
+        <div id="detail-panel">
+            <div id="detail-panel-header">
+                <span id="detail-panel-title"></span>
+                <button id="detail-panel-close" title="关闭">&times;</button>
+            </div>
+            <div id="detail-panel-content"></div>
+            <div id="detail-panel-resize"></div>
         </div>
     </div>
 

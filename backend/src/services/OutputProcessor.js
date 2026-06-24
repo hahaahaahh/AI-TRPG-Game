@@ -29,10 +29,11 @@ export class OutputProcessor {
       };
     }
 
-    // World / Character 设定阶段
+    // World / Character / KeyCharacter 设定阶段
     if (
       flowType === FlowType.WORLD_GEN ||
-      flowType === FlowType.CHARACTER_GEN
+      flowType === FlowType.CHARACTER_GEN ||
+      flowType === FlowType.KEY_CHARACTER_GEN
     ) {
       entityUpdater.applySetupHistory(
         session,

@@ -48,6 +48,21 @@ function runMigrations(database) {
   if (!hasDisplayLog) {
     database.exec(`ALTER TABLE sessions ADD COLUMN display_log TEXT NOT NULL DEFAULT '[]';`);
   }
+
+  const hasKeyCharacters = columns.some(column => column.name === 'key_characters');
+  if (!hasKeyCharacters) {
+    database.exec(`ALTER TABLE sessions ADD COLUMN key_characters TEXT NOT NULL DEFAULT '[]';`);
+  }
+
+  const hasKeyCharSetupHistory = columns.some(column => column.name === 'key_char_setup_history');
+  if (!hasKeyCharSetupHistory) {
+    database.exec(`ALTER TABLE sessions ADD COLUMN key_char_setup_history TEXT NOT NULL DEFAULT '[]';`);
+  }
+
+  const hasKeyCharacterIndex = columns.some(column => column.name === 'key_character_index');
+  if (!hasKeyCharacterIndex) {
+    database.exec(`ALTER TABLE sessions ADD COLUMN key_character_index INTEGER NOT NULL DEFAULT 0;`);
+  }
 }
 
 export function closeDatabase() {

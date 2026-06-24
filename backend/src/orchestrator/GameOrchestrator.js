@@ -133,6 +133,191 @@ export class GameOrchestrator {
     return { session: session.toClientJSON() };
   }
 
+  // ── 通用设定增删改 ──
+
+  _saveAndReturn(session) {
+    this.repository.save(session);
+    return { session: session.toClientJSON() };
+  }
+
+  updateWorldSettings(sessionId, worldSettings) {
+    const session = this.getSession(sessionId);
+    session.worldSettings = worldSettings;
+    this.repository.save(session);
+    return { session: session.toClientJSON() };
+  }
+
+  /** 按索引更新地点 (index=-1 代表新增) */
+  upsertLocation(sessionId, index, data) {
+    const session = this.getSession(sessionId);
+    if (index === -1) {
+      session.locations.push(data);
+    } else if (session.locations[index]) {
+      session.locations[index] = data;
+    } else {
+      throw new Error('地点索引越界');
+    }
+    return this._saveAndReturn(session);
+  }
+
+  deleteLocation(sessionId, index) {
+    const session = this.getSession(sessionId);
+    if (!session.locations[index]) throw new Error('地点索引越界');
+    session.locations.splice(index, 1);
+    return this._saveAndReturn(session);
+  }
+
+  /** 按索引更新 NPC (index=-1 代表新增) */
+  upsertNpc(sessionId, index, data) {
+    const session = this.getSession(sessionId);
+    if (index === -1) {
+      session.npcs.push(data);
+    } else if (session.npcs[index]) {
+      session.npcs[index] = data;
+    } else {
+      throw new Error('NPC 索引越界');
+    }
+    return this._saveAndReturn(session);
+  }
+
+  deleteNpc(sessionId, index) {
+    const session = this.getSession(sessionId);
+    if (!session.npcs[index]) throw new Error('NPC 索引越界');
+    session.npcs.splice(index, 1);
+    return this._saveAndReturn(session);
+  }
+
+  /** 按索引更新物品 (index=-1 代表新增) */
+  upsertItem(sessionId, index, data) {
+    const session = this.getSession(sessionId);
+    if (index === -1) {
+      session.inventory.push(data);
+    } else if (session.inventory[index]) {
+      session.inventory[index] = data;
+    } else {
+      throw new Error('物品索引越界');
+    }
+    return this._saveAndReturn(session);
+  }
+
+  deleteItem(sessionId, index) {
+    const session = this.getSession(sessionId);
+    if (!session.inventory[index]) throw new Error('物品索引越界');
+    session.inventory.splice(index, 1);
+    return this._saveAndReturn(session);
+  }
+
+  /** 按索引更新关键角色 (index=-1 代表新增) */
+  upsertKeyCharacter(sessionId, index, data) {
+    const session = this.getSession(sessionId);
+    if (index === -1) {
+      if (!session.keyCharacters) session.keyCharacters = [];
+      session.keyCharacters.push(data);
+    } else if (session.keyCharacters && session.keyCharacters[index]) {
+      session.keyCharacters[index] = data;
+    } else {
+      throw new Error('关键角色索引越界');
+    }
+    return this._saveAndReturn(session);
+  }
+
+  deleteKeyCharacter(sessionId, index) {
+    const session = this.getSession(sessionId);
+    if (!session.keyCharacters || !session.keyCharacters[index]) {
+      throw new Error('关键角色索引越界');
+    }
+    session.keyCharacters.splice(index, 1);
+    if (session.keyCharacterIndex >= session.keyCharacters.length) {
+      session.keyCharacterIndex = Math.max(0, session.keyCharacters.length - 1);
+    }
+    return this._saveAndReturn(session);
+  }
+
+  // ── 关键角色设定阶段 ──
+
+  enterKeyCharacterSetting(sessionId) {
+    const session = this.getSession(sessionId);
+    const check = phaseManager.canPerformAction(
+      session,
+      GameAction.ENTER_KEY_CHARACTER_SETTING
+    );
+    if (!check.allowed) throw new Error(check.reason);
+
+    phaseManager.advancePhase(session, 'ENTER_KEY_CHARACTER_SETTING');
+    session.subState = SubState.AWAITING_INPUT;
+    this._pushDisplay(session, 'system', GameConfig.GUIDANCE.KEY_CHARACTER_SETTING);
+    this.repository.save(session);
+    return {
+      session: session.toClientJSON(),
+      guidance: GameConfig.GUIDANCE.KEY_CHARACTER_SETTING,
+    };
+  }
+
+  saveKeyCharacter(sessionId) {
+    const session = this.getSession(sessionId);
+    const check = phaseManager.canPerformAction(
+      session,
+      GameAction.SAVE_KEY_CHARACTER
+    );
+    if (!check.allowed) throw new Error(check.reason);
+
+    const raw = saveExtractor.getLatestKeyCharKpOutput(session);
+    if (!raw) throw new Error('没有可存档的关键角色输出');
+
+    const charText = saveExtractor.extractKeyCharacterFromRaw(raw);
+    session.keyCharacters[session.keyCharacterIndex] = charText;
+
+    const idx = session.keyCharacterIndex;
+    const isMax = session.keyCharacters.length >= GameConfig.KEY_CHARACTER_MAX_COUNT;
+
+    this._pushDisplay(session, 'system', GameConfig.GUIDANCE.KEY_CHARACTER_SAVED);
+    this.repository.save(session);
+
+    let nextGuidance = null;
+    if (isMax) {
+      nextGuidance = GameConfig.GUIDANCE.KEY_CHARACTER_MAX;
+    }
+
+    return {
+      session: session.toClientJSON(),
+      message: GameConfig.GUIDANCE.KEY_CHARACTER_SAVED,
+      nextGuidance,
+      savedIndex: idx,
+    };
+  }
+
+  inviteNextKeyCharacter(sessionId) {
+    const session = this.getSession(sessionId);
+    const check = phaseManager.canPerformAction(
+      session,
+      GameAction.INVITE_NEXT_KEY_CHARACTER
+    );
+    if (!check.allowed) throw new Error(check.reason);
+
+    session.keyCharacterIndex = session.keyCharacterIndex + 1;
+    session.subState = SubState.AWAITING_INPUT;
+
+    const guidance = GameConfig.GUIDANCE.KEY_CHARACTER_NEXT(
+      session.keyCharacterIndex
+    );
+    this._pushDisplay(session, 'system', guidance);
+    this.repository.save(session);
+
+    return {
+      session: session.toClientJSON(),
+      guidance,
+    };
+  }
+
+  getStoryOpenConfirmInfo(sessionId) {
+    const session = this.getSession(sessionId);
+    const count = session.keyCharacters.filter(Boolean).length;
+    return {
+      count,
+      message: GameConfig.GUIDANCE.STORY_OPEN_CONFIRM(count),
+    };
+  }
+
   async openStory(sessionId, streamId) {
     const session = this.getSession(sessionId);
     const check = phaseManager.canPerformAction(session, GameAction.OPEN_STORY);
@@ -229,6 +414,14 @@ export class GameOrchestrator {
         entityUpdater.applySetupHistory(
           session,
           Phase.CHARACTER_SETTING,
+          ChatRole.PLAYER,
+          userText
+        );
+      } else if (session.phase === Phase.KEY_CHARACTER_SETTING) {
+        this._pushDisplay(session, 'player', userText);
+        entityUpdater.applySetupHistory(
+          session,
+          Phase.KEY_CHARACTER_SETTING,
           ChatRole.PLAYER,
           userText
         );
@@ -458,7 +651,8 @@ export class GameOrchestrator {
       entityUpdater.applySummary(session, raw);
     } else if (
       flowType === FlowType.WORLD_GEN ||
-      flowType === FlowType.CHARACTER_GEN
+      flowType === FlowType.CHARACTER_GEN ||
+      flowType === FlowType.KEY_CHARACTER_GEN
     ) {
       // setupHistory 中已由 _processOutput 存入 raw
     } else {

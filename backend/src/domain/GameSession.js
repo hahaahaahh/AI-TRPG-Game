@@ -14,8 +14,11 @@ export class GameSession {
     this.openingDone = data.openingDone ?? false;
     this.worldSettings = data.worldSettings ?? '';
     this.protagonist = data.protagonist ?? '';
+    this.keyCharacters = data.keyCharacters ?? [];
+    this.keyCharacterIndex = data.keyCharacterIndex ?? 0;
     this.chatRecord = data.chatRecord ?? [];
     this.setupHistory = data.setupHistory ?? { world: [], character: [] };
+    this.keyCharSetupHistory = data.keyCharSetupHistory ?? [];
     this.displayLog = data.displayLog ?? [];
     this.optionBuffer = data.optionBuffer ?? '';
     this.locations = data.locations ?? [];
@@ -34,7 +37,15 @@ export class GameSession {
     return {
       worldSettings: this.worldSettings,
       protagonist: this.protagonist,
+      keyCharacters: this.keyCharacters,
     };
+  }
+
+  getCurrentKeyCharSetupHistory() {
+    if (!this.keyCharSetupHistory[this.keyCharacterIndex]) {
+      this.keyCharSetupHistory[this.keyCharacterIndex] = [];
+    }
+    return this.keyCharSetupHistory[this.keyCharacterIndex];
   }
 
   isInputLocked() {
@@ -66,8 +77,11 @@ export class GameSession {
       openingDone: this.openingDone,
       worldSettings: this.worldSettings,
       protagonist: this.protagonist,
+      keyCharacters: this.keyCharacters,
+      keyCharacterIndex: this.keyCharacterIndex,
       chatRecord: this.chatRecord,
       setupHistory: this.setupHistory,
+      keyCharSetupHistory: this.keyCharSetupHistory,
       displayLog: this.displayLog,
       optionBuffer: this.optionBuffer,
       locations: this.locations,

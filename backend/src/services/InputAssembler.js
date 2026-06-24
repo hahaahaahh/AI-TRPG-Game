@@ -44,6 +44,9 @@ export class InputAssembler {
       case FlowType.CHARACTER_GEN:
         this._buildCharacterGenMessages(messages, session, userText);
         break;
+      case FlowType.KEY_CHARACTER_GEN:
+        this._buildKeyCharacterGenMessages(messages, session, userText);
+        break;
       case FlowType.STORY_OPENING:
         this._buildStoryOpeningMessages(messages, session);
         break;
@@ -84,9 +87,9 @@ export class InputAssembler {
 
   // ── 人物设定 ──
   _buildCharacterGenMessages(messages, session, userText) {
-    // 按文档规范：世界观描述应写入 system 消息（而非 user 消息）
+    // 世界观描述追加到 system 消息末尾（BASE_INTRO 保持在最前面）
     if (session.worldSettings) {
-      messages[0].content = `世界观描述如下：\n${session.worldSettings}\n\n${messages[0].content}`;
+      messages[0].content += `\n\n世界观描述如下：\n${session.worldSettings}`;
     }
 
     const history = session.setupHistory.character || [];
@@ -105,23 +108,46 @@ export class InputAssembler {
     }
   }
 
+  // ── 关键角色设定 ──
+  _buildKeyCharacterGenMessages(messages, session, userText) {
+    // 世界观和主角设定追加到 system 消息末尾（BASE_INTRO 保持在最前面）
+    messages[0].content += `\n\n世界观描述如下：\n${session.worldSettings}\n\n主角设定如下：\n${session.protagonist}`;
+
+    const history = session.getCurrentKeyCharSetupHistory();
+
+    if (history.length === 0) {
+      messages.push({ role: 'user', content: userText });
+    } else {
+      for (let i = 0; i < history.length; i++) {
+        const entry = history[i];
+        const role = entry.role === ChatRole.PLAYER ? 'user' : 'assistant';
+        messages.push({ role, content: entry.content });
+      }
+    }
+  }
+
+  /** 构建完整设定上下文（世界观+主角+关键角色+地点+NPC+物品），持续发给LLM */
+  _buildFullSettingsContext(session) {
+    return necessarySettingsBuilder.build(session);
+  }
+
   // ── 故事开幕 ──
   _buildStoryOpeningMessages(messages, session) {
     messages.push({
       role: 'user',
-      content: `世界观与人物设定如下：\n世界观描述：${session.worldSettings}\n主角设定：${session.protagonist}`,
+      content: this._buildFullSettingsContext(session),
     });
   }
 
   // ── 叙述I ──
   _buildNarrationIMessages(messages, session, userText) {
-    // 世界+主角设定
+    // 完整设定持续输入
     messages.push({
       role: 'user',
-      content: `世界观设定：${session.worldSettings}\n主角设定：${session.protagonist}`,
+      content: this._buildFullSettingsContext(session),
     });
 
-    // 历史对话
+    // 历史对话（含 userText，handleMessage 已将其写入 chatRecord）
     const historyMsgs = chatRecordToMessages(session.chatRecord);
     for (const m of historyMsgs) {
       messages.push(m);
@@ -131,17 +157,14 @@ export class InputAssembler {
     if (session.optionBuffer) {
       messages.push({ role: 'assistant', content: session.optionBuffer });
     }
-
-    // 用户当前 prompt
-    messages.push({ role: 'user', content: userText });
   }
 
   // ── 叙述II ──
   _buildNarrationIIMessages(messages, session) {
-    // 世界+主角设定
+    // 完整设定持续输入
     messages.push({
       role: 'user',
-      content: `世界观设定：${session.worldSettings}\n主角设定：${session.protagonist}`,
+      content: this._buildFullSettingsContext(session),
     });
 
     // 历史对话（含 dice 消息和系统投掷结果）

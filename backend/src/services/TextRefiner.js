@@ -34,6 +34,7 @@ export class TextRefiner {
       case FlowType.WORLD_GEN:
         return this._refineWorld(parsed);
       case FlowType.CHARACTER_GEN:
+      case FlowType.KEY_CHARACTER_GEN:
         return this._refineCharacter(parsed);
       case FlowType.STORY_OPENING:
       case FlowType.NARRATION_I:
@@ -78,6 +79,7 @@ export class TextRefiner {
       }
     };
 
+    // 基本信息
     addField('姓名', card.name);
     addField('年龄', card.age);
     addField('性别', card.gender);
@@ -85,6 +87,7 @@ export class TextRefiner {
     addField('性格', card.personality);
     addField('人物肖像与重要经历', card.portrait);
 
+    // ── 属性 ──
     if (card.attributes) {
       const a = card.attributes;
       const attrNames = [
@@ -101,11 +104,14 @@ export class TextRefiner {
         }
       }
       if (attrParts.length > 0) {
-        lines.push(attrParts.join('  '));
-        htmlParts.push(attrHtml.join('  '));
+        lines.push('', '【属性】', attrParts.join('  '));
+        htmlParts.push(
+          `<br><strong>【属性】</strong><br>${attrHtml.join('  ')}`
+        );
       }
     }
 
+    // ── HP / SAN / 信用评级 ──
     const stats = [];
     const statsHtml = [];
     if (card.hp !== undefined && card.hp !== null) {
@@ -121,31 +127,44 @@ export class TextRefiner {
       statsHtml.push(`信用评级：${card.credit_rating}`);
     }
     if (stats.length > 0) {
-      lines.push(stats.join('  '));
-      htmlParts.push(statsHtml.join('  '));
+      lines.push('', '【HP / SAN】', stats.join('  '));
+      htmlParts.push(
+        `<br><strong>【HP / SAN】</strong><br>${statsHtml.join('  ')}`
+      );
     }
 
+    // ── 本职技能 ──
     if (Array.isArray(card.occupational_skills) && card.occupational_skills.length > 0) {
-      const skills = card.occupational_skills.map(s => `${s.name}：${s.value}`).join('  ');
-      lines.push(skills);
-      htmlParts.push(escapeHtml(skills));
+      const skillLine = card.occupational_skills.map(s => `${s.name}：${s.value}`).join('  ');
+      const skillHtmlLine = card.occupational_skills.map(s => `${escapeHtml(s.name)}：${escapeHtml(String(s.value))}`).join('  ');
+      lines.push('', '【本职技能】', skillLine);
+      htmlParts.push(
+        `<br><strong>【本职技能】</strong><br>${skillHtmlLine}`
+      );
     }
 
+    // ── 非本职技能 ──
     if (Array.isArray(card.personal_skills) && card.personal_skills.length > 0) {
-      const skills = card.personal_skills.map(s => `${s.name}：${s.value}`).join('  ');
-      lines.push(skills);
-      htmlParts.push(escapeHtml(skills));
+      const skillLine = card.personal_skills.map(s => `${s.name}：${s.value}`).join('  ');
+      const skillHtmlLine = card.personal_skills.map(s => `${escapeHtml(s.name)}：${escapeHtml(String(s.value))}`).join('  ');
+      lines.push('', '【非本职技能】', skillLine);
+      htmlParts.push(
+        `<br><strong>【非本职技能】</strong><br>${skillHtmlLine}`
+      );
     }
 
+    // ── 随身物品 ──
     if (Array.isArray(card.inventory) && card.inventory.length > 0) {
       const inv = `随身物品：${card.inventory.join('、')}`;
-      lines.push(inv);
-      htmlParts.push(escapeHtml(inv));
+      const invHtml = `随身物品：${escapeHtml(card.inventory.join('、'))}`;
+      lines.push('', '【随身物品】', inv);
+      htmlParts.push(`<br><strong>【随身物品】</strong><br>${invHtml}`);
     }
 
+    // 组装：plainText = 纯文本（用于打字机流式），html = 包裹在 kp-block 中
     return {
       plainText: lines.join('\n'),
-      html: htmlParts.join('<br>'),
+      html: `<div class="kp-block">${htmlParts.join('<br>')}</div>`,
     };
   }
 

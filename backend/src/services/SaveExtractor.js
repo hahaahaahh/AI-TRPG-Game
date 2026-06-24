@@ -15,8 +15,42 @@ export class SaveExtractor {
     if (!parsed || !jsonOutputParser.hasCharacterCard(parsed)) {
       throw new Error('未找到 character_card 字段，无法存档主角设定');
     }
-    // 将 character_card 对象序列化为可读文本
-    const card = parsed.character_card;
+    return this._serializeCharacterCard(parsed.character_card, true);
+  }
+
+  getLatestKpOutput(session, bucket) {
+    const history =
+      bucket === 'world'
+        ? session.setupHistory.world
+        : session.setupHistory.character;
+    for (let i = history.length - 1; i >= 0; i--) {
+      if (history[i].role === 'kp') {
+        return history[i].content;
+      }
+    }
+    return null;
+  }
+
+  getLatestKeyCharKpOutput(session) {
+    const history = session.getCurrentKeyCharSetupHistory();
+    for (let i = history.length - 1; i >= 0; i--) {
+      if (history[i].role === 'kp') {
+        return history[i].content;
+      }
+    }
+    return null;
+  }
+
+  extractKeyCharacterFromRaw(raw) {
+    const parsed = jsonOutputParser.parse(raw);
+    if (!parsed || !jsonOutputParser.hasCharacterCard(parsed)) {
+      throw new Error('未找到 character_card 字段，无法存档关键角色');
+    }
+    // 复用 extractCharacterFromRaw 的序列化逻辑，但不加 PROTAGONIST_SKILL_SUPPLEMENT
+    return this._serializeCharacterCard(parsed.character_card, false);
+  }
+
+  _serializeCharacterCard(card, addSupplement = true) {
     const lines = [];
     if (card.name) lines.push(`姓名：${card.name}`);
     if (card.age !== undefined) lines.push(`年龄：${card.age}`);
@@ -62,23 +96,10 @@ export class SaveExtractor {
     }
 
     let text = lines.join('\n');
-    if (!text.includes(GameConfig.PROTAGONIST_SKILL_SUPPLEMENT)) {
+    if (addSupplement && !text.includes(GameConfig.PROTAGONIST_SKILL_SUPPLEMENT)) {
       text += `\n${GameConfig.PROTAGONIST_SKILL_SUPPLEMENT}`;
     }
     return text;
-  }
-
-  getLatestKpOutput(session, bucket) {
-    const history =
-      bucket === 'world'
-        ? session.setupHistory.world
-        : session.setupHistory.character;
-    for (let i = history.length - 1; i >= 0; i--) {
-      if (history[i].role === 'kp') {
-        return history[i].content;
-      }
-    }
-    return null;
   }
 }
 

@@ -1,7 +1,13 @@
-import 'dotenv/config';
-import { OpenAICompatibleProvider } from './llm/OpenAICompatibleProvider.js';
-import { streamEmitter } from './api/StreamEmitter.js';
-import { createApp } from './api/GameController.js';
+import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: path.join(__dirname, '..', '.env') });
+
+const { OpenAICompatibleProvider } = await import('./llm/OpenAICompatibleProvider.js');
+const { streamEmitter } = await import('./api/StreamEmitter.js');
+const { createApp } = await import('./api/GameController.js');
 
 const PORT = process.env.PORT || 3001;
 
