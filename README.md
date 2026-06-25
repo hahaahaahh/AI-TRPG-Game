@@ -3,6 +3,7 @@
 一个基于大语言模型（LLM）的 **单人 AI 跑团系统**。由 AI 扮演 KP（守秘人），遵循 **CoC 7th（克苏鲁的呼唤第七版）** 规则，为玩家提供高自由度、强沉浸感的互动叙事体验；前端截图如下：
 
 <img width="2856" height="1535" alt="image" src="https://github.com/user-attachments/assets/af3649dc-c104-48a1-963d-76e4739f241d" />
+<img width="2843" height="1514" alt="image" src="https://github.com/user-attachments/assets/5b3f362c-5ee5-4f21-b79a-6205d42b725f" />
 
 ## 项目动机
 
