@@ -129,13 +129,8 @@ LLM 未按要求输出合法 JSON 时，系统会自动重试一次，两次均�
 git clone <your-repo-url>
 cd AI-TRPG-Game
 
-# 安装根目录依赖（前端 Vite 开发服务器）
+# 一键安装根目录 + 后端全部依赖（postinstall 自动处理）
 npm install
-
-# 安装后端依赖
-cd backend
-npm install
-cd ..
 ```
 
 ### 2. 配置环境变量
@@ -160,28 +155,23 @@ LLM_MODEL=deepseek-chat
 >
 > `.env` 已被 `.gitignore` 排除，不会上传到 GitHub。你的 API Key 不会泄露。
 
-### 3. 启动项目（需要两个终端）
-
-**终端 1 — 启动后端：**
+### 3. 启动项目（一条命令）
 
 ```bash
-cd backend
-npm run dev
+npm run dev:all
 ```
 
-后端运行在 `http://localhost:3001`，并启用文件监听自动重启。
-
-**终端 2 — 启动前端开发服务器：**
-
-```bash
-npm run dev
-```
-
-前端 Vite 开发服务器默认运行在 `http://localhost:5173`，支持热更新。
+> 自动同时启动前端（`http://127.0.0.1:5173`）和后端（`http://localhost:3001`），启动前自动清理端口占用。
+>
+> 按 `Ctrl+C` 即可同时停止前后端。
+>
+> 如需单独启动某一端：
+> - 前端：`npm run dev`
+> - 后端：`cd backend && npm run dev`
 
 ### 4. 打开浏览器访问
 
-浏览器访问 Vite 输出的地址（通常为 `http://localhost:5173`），即可进入游戏。
+浏览器访问 `http://127.0.0.1:5173`，即可进入游戏。
 
 ### 5. 开始游戏
 
