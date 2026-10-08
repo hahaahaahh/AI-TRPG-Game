@@ -13,7 +13,7 @@ export function crisisGuidance(session) {
   const left = Math.max(0, 3 - (session.finaleState?.completedActions || 0));
   const names = (session.finaleState?.crisisSnapshot?.participants || [])
     .map(id => session.npcs.find(n => n.id === id && n.visibility !== 'hidden')?.name).filter(Boolean);
-  return `【终局危机 · 剩余${left}次行动】${session.combat?.objective || '脱离眼前危险'}。${names.length ? `现场人物：${names.join('、')}。` : ''}列车已经离站，撤离将走站外公路。\n${CRISIS_OPTIONS.join('\n')}`;
+  return `【终局危机 · 剩余${left}次行动】${session.combat?.objective || '脱离眼前危险'}。${names.length ? `现场人物：${names.join('、')}。` : ''}${session.scenarioSource === 'generated' ? '正常调查已经结束，请先解决眼前危险。' : '列车已经离站，撤离将走站外公路。'}\n${CRISIS_OPTIONS.join('\n')}`;
 }
 
 // Called only after a completed narrative/check, never during retries or dice setup.
@@ -24,7 +24,7 @@ export function completeFinaleAction(session, action) {
   state.crisisSnapshot ||= session.combat ? structuredClone(session.combat) : null;
   if (/逃|脱离|撤离|谈判|说服/.test(action) && state.lastCheck?.success) {
     session.combat = null;
-    state.resolutionOutcome = { kind: 'successful_exit', text: '你的行动通过了检定，成功结束了眼前的围堵。你保留已保全的记录，接下来可沿站外公路撤离。' };
+    state.resolutionOutcome = { kind: 'successful_exit', text: session.scenarioSource === 'generated' ? session.scenarioDefinition.crisis.escape : '你的行动通过了检定，成功结束了眼前的围堵。你保留已保全的记录，接下来可沿站外公路撤离。' };
   }
   if (!session.combat?.active) {
     state.resolutionOutcome ||= { kind: 'resolved', text: '眼前冲突已经结束，接下来决定真相与证据的去向。' };
@@ -36,6 +36,12 @@ export function completeFinaleAction(session, action) {
 
 export function forceFinaleClosure(session, action = '') {
   const state = session.finaleState;
+  if (session.scenarioSource === 'generated') {
+    state.crisisSnapshot ||= session.combat ? structuredClone(session.combat) : null;
+    state.resolutionOutcome = { kind: 'forced_retreat', text: session.scenarioDefinition.crisis.setback + '你没有因此取得新证据或胜利。' };
+    session.combat = null; session.activeScene = null; session.scenarioFlags.finale_crisis_resolved = true;
+    return state.resolutionOutcome.text;
+  }
   // Transfer only an explicitly named, held item; never invent contested evidence.
   const surrender = /交出|交给|放下|投降/.test(action);
   const handed = surrender ? session.inventory.filter(item => item.name && action.includes(item.name) && item.status !== '已失去') : [];
@@ -65,6 +71,7 @@ export function consolidationOptions(session) {
 
 // Applied only to new output, never to historical descriptions of earlier boarding.
 export function enforceDeparture(session, parsed) {
+  if (session.scenarioSource === 'generated') return parsed;
   if (!session.scenarioFlags?.train_departed) return parsed;
   const blocked = /登上.{0,10}(?:列车|雾港号)|登车|(?:赶紧|赶快|赶在.{0,8}|准备|决定|尝试|可以|还能|立即)上车|赶上.{0,8}(?:列车|雾港号)|离站前|发车前/;
   const rewrite = text => typeof text !== 'string' ? text : text.split(/(?<=[。！？\n])/).map(sentence =>

@@ -51,6 +51,8 @@ function checkSchema(schema, path = 'root') {
 }
 
 const flowTypes = [
+  FlowType.SCENARIO_GEN,
+  FlowType.ACTION_INTERPRET,
   FlowType.WORLD_GEN,
   FlowType.CHARACTER_GEN,
   FlowType.KEY_CHARACTER_GEN,

@@ -196,7 +196,31 @@ try {
     toolChoice: 'required',
   });
   assert(requestBody.thinking?.type === 'disabled', 'routine DeepSeek narration should automatically disable thinking');
-  assert(!Object.prototype.hasOwnProperty.call(requestBody, 'reasoning_effort'), 'profiled DeepSeek must never receive reasoning_effort');
+  assert(!Object.prototype.hasOwnProperty.call(requestBody, 'reasoning_effort'), 'non-thinking DeepSeek narration must not accidentally enable reasoning');
+
+  const generationRequest = { flowType: 'SCENARIO_GEN', messages: [{ role:'user', content:'test' }], thinking:true,
+    tools:[{ type:'function', function:{ name:'output_scenario', parameters:{} } }], toolChoice:'required', maxTokens:8192 };
+  await deepSeekEntry.provider.generate(generationRequest);
+  assert(requestBody.max_tokens === 32768, 'DeepSeek case generation needs a separate larger output allowance');
+  assert(requestBody.reasoning_effort === 'low', 'official DeepSeek generation should reserve room for JSON with low effort');
+  assert(requestBody.thinking.type === 'enabled' && !requestBody.tool_choice, 'thinking requests must not force tool_choice');
+  await qwenEntry.provider.generate(generationRequest);
+  assert(requestBody.max_tokens === 16384 && requestBody.reasoning_effort === 'medium', 'Qwen case generation gets a larger cap without changing routine narration');
+  for (const preparationStage of ['routes', 'conclusion', 'repair']) {
+    await qwenEntry.provider.generate({ ...generationRequest, preparationStage });
+    assert(requestBody.reasoning_effort === 'none', `${preparationStage}: Qwen structured work disables reasoning`);
+    await deepSeekEntry.provider.generate({ ...generationRequest, preparationStage });
+    assert(requestBody.thinking.type === 'disabled' && !requestBody.reasoning_effort, `${preparationStage}: DeepSeek structured work disables reasoning`);
+  }
+  const overrideConfig = getLLMProfiles({ LLM_MODEL:'deepseek-flash', LLM_API_KEY:'test',
+    LLM_SCENARIO_MAX_TOKENS:'20000', DEEPSEEK_SCENARIO_MAX_TOKENS:'24000',
+    DEEPSEEK_SCENARIO_REASONING_EFFORT:'none', DEEPSEEK_SCENARIO_TIMEOUT_MS:'250000' });
+  const overridden = overrideConfig.profiles.find(p => p.provider === 'deepseek');
+  assert(overridden.flowPolicies.SCENARIO_GEN.maxTokens === 24000 && overridden.flowPolicies.SCENARIO_GEN.timeoutMs === 250000, 'provider-specific overrides beat shared defaults');
+  await new OpenAICompatibleProvider(overridden).generate(generationRequest);
+  assert(requestBody.thinking.type === 'disabled' && requestBody.tool_choice === 'required', 'none effort disables thinking and permits strict forced tools');
+  const compatible = getLLMProfiles({ LLM_MODEL:'deepseek-flash', LLM_BASE_URL:'https://example.test', LLM_API_KEY:'test' }).profiles[0];
+  assert(!compatible.capabilities.reasoningEffort, 'unknown compatible endpoints must not receive newly documented official-only effort');
 
   const persistedSession = new GameSession({ id: 'session_profile_test', llmProfileId: 'soclaas:qwen3.8:27b' });
   assert(persistedSession.toClientJSON().llmProfileId === 'soclaas:qwen3.8:27b', 'selected model profile should persist with the game session');

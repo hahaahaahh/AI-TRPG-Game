@@ -1,4 +1,5 @@
 import { scenarioProgressService as progress } from './ScenarioProgressService.js';
+import { isGenerated, generatedTargets, prepareGeneratedAction, resolveGeneratedAction, advanceGenerated } from './GeneratedInvestigationRuntime.js';
 import { componentAccess, contactWitness, knownRoute, locationPatterns, requestedComponents } from '../../../src/shared/InvestigationRules.mjs';
 
 export const GUIDE = '每次只处理一个有意义的目标，移动与到达后的调查分开输入；比例尺、标注等辅助步骤可合并。模糊或多步骤输入会免费请求澄清；失败的实际检定仍消耗行动。证据栏“详细信息”免费显示各组件、已知条件和下一步，未知来源不会提前揭露。调查会发现线索；拍照、取样、录音等保全行动才形成可复核的证据。可用中英文输入，也可点击证据栏的保全按钮：按钮仍是正常行动，不会绕过危险。检定前会说明风险。NPC显示的是你观察到的情况，不是其秘密或数值。安全处可用“包扎伤口”消耗敷料恢复生命，或“稳定情绪”缓解暂时压力；两者都消耗一次行动。最终决定只需提交一次，即使眼前危险尚未结束。';
@@ -44,6 +45,7 @@ export function enterAnnouncedDanger(session) {
   }
 }
 export function targetClues(session, text) {
+  if (isGenerated(session)) return generatedTargets(session, text);
   return Object.entries(aliases).filter(([id, pattern]) => session.scenarioRules?.clueCatalog?.[id] && pattern.test(text)).map(([id]) => id);
 }
 export function preservationMethod(text) {
@@ -72,6 +74,7 @@ function check(session, skill, danger = false) {
 }
 export function prepareAction(session, input) {
   enterAnnouncedDanger(session);
+  if (isGenerated(session)) return prepareGeneratedAction(session, input);
   const s = state(session);
   const intent = evidenceIntent(session, input);
   const tx = { id: `${session.id}:${session.scenarioClock.turn + 1}`, ...intent, input, checks: [], receipts: [], resolved: false, wasCombat: !!session.combat?.active, hpBefore: session.npcs.find(n => n.id === 'npc_000')?.hp };
@@ -133,6 +136,7 @@ export function prepareAction(session, input) {
   return tx;
 }
 export function resolveAction(session) {
+  if (isGenerated(session)) return resolveGeneratedAction(session);
   const s = state(session), tx = s.transaction;
   if (!tx || tx.resolved) return;
   tx.resolved = true;
@@ -208,6 +212,7 @@ export function resolveAction(session) {
   s.receipts = tx.receipts;
 }
 export function advanceHybrid(session) {
+  if (isGenerated(session)) return advanceGenerated(session);
   const s = state(session); if (!s.transaction?.travelOnly) s.actions++;
   const found = session.evidence.filter(e => e.discovered !== false);
   if (s.act === 'opening' && (s.actions >= 6 || s.actions >= 4 && found.length >= 2)) s.act = 'investigation';
@@ -248,6 +253,11 @@ export function repeatedNarration(text, previous = []) {
 }
 
 export function unsupportedEffects(session, text) {
+  if (isGenerated(session)) {
+    const tx = state(session).transaction;
+    return !!session.combat?.active && /成功脱身|停止围堵|逃脱成功/.test(text)
+      || !(tx?.hpBefore > session.npcs.find(n => n.id === 'npc_000')?.hp) && /你.{0,30}(?:流血|剧痛|被.{0,8}砸中)/.test(text);
+  }
   const tx = state(session).transaction;
   if (!tx) return false;
   const normalized = text.replace(/\s+/g, '');

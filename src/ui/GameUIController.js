@@ -1,4 +1,5 @@
-import { apiClient } from '../api/ApiClient.js';
+import { SessionRequestCoordinator } from '../api/SessionRequestCoordinator.mjs';
+import { apiClient, coordinateSessionRequests } from '../api/ApiClient.js';
 import { sessionStore } from '../persistence/SessionStore.js';
 import { evidenceDetails, actionText } from '../shared/InvestigationRules.mjs';
 import {
@@ -11,10 +12,9 @@ import {
   sanitizePlayerPresentation,
 } from './ScenarioPresentation.mjs';
 
-function escapeHtml(s) {
-  const d = document.createElement('div');
-  d.textContent = s;
-  return d.innerHTML;
+export function escapeHtml(s) {
+  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 // 旧数据兼容：将 LLM raw 输出渲染为带分隔线的 HTML
@@ -125,6 +125,10 @@ export class GameUIController {
   constructor() {
     this.sessionId = null;
     this.session = null;
+    this.requests = new SessionRequestCoordinator({ store: sessionStore, currentId: () => this.sessionId,
+      onStored: () => this._renderSessionList() });
+    coordinateSessionRequests(this.requests);
+    sessionStore.onDelete(id => this._onSessionDeleted(id));
     this.selectedOptions = new Set();
     this.inputLocked = false;
     this._botEl = null;
@@ -220,6 +224,7 @@ export class GameUIController {
 
       await this._createNewSession();
     } catch (err) {
+      if (err.silent) return;
       this._appendMessage(`初始化失败: ${err.message}`, 'error');
     }
   }
@@ -347,6 +352,8 @@ export class GameUIController {
 
   async _createNewSession() {
     const { session } = await apiClient.createSession('新剧本', this.selectedLlmProfileId);
+    // Establish ownership before the first setup request is coordinated.
+    await this._loadSession(session);
     const worldResult = await apiClient.enterWorldSetting(session);
     await this._loadSession(worldResult.session);
   }
@@ -356,15 +363,21 @@ export class GameUIController {
       const { session } = await apiClient.createBirchStationTutorial(this.selectedLlmProfileId);
       await this._loadSession(session);
     } catch (err) {
+      if (err.silent) return;
       this._appendMessage(`无法开始新手试炼: ${err.message}`, 'error');
     }
   }
 
   async _loadSession(session) {
+    const navigation = Symbol('session navigation');
+    this._sessionNavigation = navigation;
     this.sessionId = session.id;
     // 如果 IndexedDB 中不存在（新建会话场景），先存入再读取
-    this.session = await sessionStore.getSession(session.id)
+    const loaded = await sessionStore.getSession(session.id)
       || await sessionStore.saveSession(session);
+    if (this._sessionNavigation !== navigation) return;
+    this.session = loaded;
+    this._diceRequestActive = false;
     this._syncModelProfileForSession(this.session);
     sanitizePlayerPresentation(this.session);
     localStorage.setItem('ai-trpg-current-session-id', session.id);
@@ -376,12 +389,15 @@ export class GameUIController {
     this._dicePendingBotEl = null;
     this._removeDiceConfirm();
     this._restoreUI();
+    this._setInputLocked(this.requests.isPending(session.id));
     await this._renderSessionList();
   }
 
   async _persistSession() {
     if (!this.session) return;
-    this.session = await sessionStore.saveSession(this.session);
+    const original = this.session;
+    const saved = await sessionStore.saveSession(original);
+    if (this.session === original) this.session = saved;
     await this._renderSessionList();
   }
 
@@ -509,6 +525,7 @@ export class GameUIController {
           await sessionStore.swapSessionOrder(fromId, toId);
           await this._renderSessionList();
         } catch (err) {
+      if (err.silent) return;
           console.error('Swap session order failed:', err);
         }
       });
@@ -567,22 +584,25 @@ export class GameUIController {
   }
 
   async _deleteSession(session) {
-    const ok = window.confirm(`删除会话“${session.title || '新剧本'}”吗？`);
+    const ok = window.confirm(`删除会话“${session.title || '新剧本'}”吗？迟到的结果将被丢弃，已发出的模型请求仍可能产生费用。此操作不能撤销。`);
     if (!ok) return;
 
-    await sessionStore.deleteSession(session.id);
-    if (session.id !== this.sessionId) {
-      await this._renderSessionList();
-      return;
-    }
+    try { await sessionStore.deleteSession(session.id); }
+    catch (error) { this._appendMessage(`删除失败，原会话仍保留：${error.message}`, 'error'); }
+  }
 
-    const remaining = await sessionStore.listSessions();
-    if (remaining.length > 0) {
-      await this._loadSession(remaining[0]);
-      return;
+  async _onSessionDeleted(id) {
+    // A broadcast is only a hint: verify the durable marker before changing UI.
+    if (!await sessionStore.isDeleted(id)) return;
+    this.requests.cancel(id);
+    if (this.sessionId === id) {
+      this.sessionId = null; this.session = null;
+      this._diceRequestActive = false;
+      const remaining = await sessionStore.listSessions();
+      if (remaining.length) await this._loadSession(remaining[0]);
+      else await this._loadSession(await sessionStore.createSession());
     }
-
-    await this._createNewSession();
+    await this._renderSessionList();
   }
 
   // ── Handler 构件 ──
@@ -743,7 +763,7 @@ export class GameUIController {
       if (S >= 1 && O === 0) {
         // B1：纯 sancheck
         const targets = sancchecks.map(s => this._formatActionTarget(s.target)).join('、');
-        innerHtml += `<div class="dice-confirm-title">${targets} 直视了不可直视之物，需要进行 SAN 检定</div>`;
+        innerHtml += `<div class="dice-confirm-title">${targets} ${this.session.investigationSetup?.psychologicalPresentation === 'stress' ? '面临强烈压力，需要进行心理承受力检定' : '直视了不可直视之物，需要进行理智检定'}</div>`;
       } else if (S === 0 && O >= 1) {
         // B2：纯 others 非 sancheck
         innerHtml += `<div class="dice-confirm-title">将进行 ${O} 次投掷判定</div>`;
@@ -789,6 +809,7 @@ export class GameUIController {
   }
 
   async _confirmDice() {
+    const requestOrigin = this.sessionId;
     this._diceRequestActive = true;
     this._syncInputControls();
     const scrollState = this._captureMessageScroll();
@@ -825,8 +846,10 @@ export class GameUIController {
       this._renderLlmResponse(resp, { isDiceBranch: true, scrollState });
       await this._persistSession();
     } catch (err) {
+      if (err.silent) return;
       this._appendMessage(`错误: ${err.message}`, 'error');
     } finally {
+      if (this.sessionId !== requestOrigin) return;
       this._clearWaiting();
       this._diceRequestActive = false;
       this._syncInputControls();
@@ -854,12 +877,14 @@ export class GameUIController {
       await this._persistSession();
       this._setInputLocked(false);
     } catch (err) {
+      if (err.silent) return;
       this._appendMessage(`取消失败: ${err.message}`, 'error');
     }
   }
 
   // ── 核心操作 ──
   async _sendMessage(action) {
+    const requestOrigin = this.sessionId;
     if (this._isInputBlocked()) return;
     const text = this.promptInput.value.trim();
     if (!text) return;
@@ -881,8 +906,10 @@ export class GameUIController {
       this._renderLlmResponse(resp, { scrollState });
       await this._persistSession();
     } catch (err) {
+      if (err.silent) return;
       this._appendMessage(`错误: ${err.message}`, 'error');
     } finally {
+      if (this.sessionId !== requestOrigin) return;
       this._clearWaiting();
       // DICE_AWAITING 时不应解锁输入 —— 等待确认/取消
       if (this.session?.subState !== 'DICE_PENDING') {
@@ -891,34 +918,89 @@ export class GameUIController {
     }
   }
 
-  async _openStory() {
+  async _openStory(preparationCommand = null) {
+    const requestOrigin = this.sessionId;
     if (this.session?.openingDone) return;
+    if (!this.session.investigationSetup && !this.session.scenarioId) {
+      const setup = await this._chooseInvestigationSetup();
+      if (!setup || requestOrigin !== this.sessionId) return;
+      this.session.investigationSetup = setup;
+      await this._persistSession();
+    }
 
     // 如果有关键角色设定阶段，先弹出确认
     if (this.session.phase === 'KEY_CHARACTER_SETTING' ||
         (this.session.phase === 'CHARACTER_SETTING' && this.session.keyCharacters?.length > 0)) {
-      const { count, message } = await apiClient.getStoryOpenConfirm(this.session);
-      const confirmed = window.confirm(message);
-      if (!confirmed) return;
+      try {
+        const { message } = await apiClient.getStoryOpenConfirm(this.session);
+        if (!window.confirm(message)) return;
+      } catch (err) {
+        if (!err.silent) this._appendMessage(`无法确认开幕：${err.message}`, 'error');
+        return;
+      }
     }
 
     const scrollState = this._captureMessageScroll();
     this._setInputLocked(true);
     this._showWaiting();
     document.getElementById('btn-open-story').disabled = true;
+    this._pausePreparation=false;
+    const pauseButton=document.createElement('button');
+    pauseButton.textContent='暂停准备';
+    pauseButton.onclick=()=>{this._pausePreparation=true;pauseButton.disabled=true;pauseButton.textContent='当前请求完成后暂停';};
+    if(this.session.investigationSetup?.mode==='guided' && !this.session.scenarioDefinition) document.getElementById('btn-open-story').parentElement.append(pauseButton);
 
     try {
-      const resp = await apiClient.openStory(this.session, {
-        onDebug: (log) => this._appendDebugPanel(log),
-      });
-      this._renderLlmResponse(resp, { scrollState });
-      await this._persistSession();
+      for (let step = 0; step < 7; step++) {
+        const resp = await apiClient.openStory(this.session, {
+          preparationCommand: step===0 && typeof preparationCommand==='string' ? preparationCommand : null,
+          onDebug: (log) => this._appendDebugPanel(log),
+        });
+        this._renderLlmResponse(resp, { scrollState });
+        await this._persistSession();
+        if (!['SCENARIO_PREPARED','SCENARIO_PROGRESS'].includes(resp.result?.branch) || this.sessionId !== requestOrigin || this._pausePreparation) break;
+      }
     } catch (err) {
+      if (err.silent) return;
       this._appendMessage(`故事开幕失败: ${err.message}`, 'error');
     } finally {
+      pauseButton.remove();
+      if (this.sessionId !== requestOrigin) return;
       this._clearWaiting();
       this._setInputLocked(false);
+      this._renderPreparationControls();
     }
+  }
+
+  _renderPreparationControls() {
+    document.getElementById('preparation-controls')?.remove();
+    if(this.session?.openingDone || this.session?.scenarioDefinition || !this.session?.scenarioPreparation || this._isInputBlocked()) return;
+    const panel=document.createElement('div'); panel.id='preparation-controls';
+    const status=document.createElement('p'); status.textContent=this.session.scenarioPreparation.message || '案件准备进度已保存。可继续准备，或清除未开幕草稿重新准备。';panel.append(status);
+    const resume=document.createElement('button');resume.textContent='继续准备';resume.onclick=()=>this._openStory(this.session.scenarioPreparation.status==='paused'?'continue':null);
+    resume.disabled=Boolean(this.session.scenarioPreparation.restartRequired);
+    const restart=document.createElement('button');restart.textContent='重新准备案件';restart.onclick=()=>{if(window.confirm('清除当前未开幕的案件草稿？世界与人物设定会保留。')) this._openStory('restart');};
+    panel.append(resume,restart);document.getElementById('btn-open-story')?.parentElement.append(panel);
+  }
+
+  _chooseInvestigationSetup() {
+    return new Promise(resolve => {
+      const dialog = document.createElement('dialog');
+      dialog.style.cssText = 'max-width:560px;width:calc(100% - 48px);padding:28px;border-radius:16px;line-height:1.8';
+      dialog.innerHTML = `<form method="dialog"><h2>选择本次玩法</h2>
+        <p>引导调查会先准备隐藏案件、地图与证据路线，可能需要数分钟；模型请求可能产生费用。</p>
+        <label>模式 <select name="mode"><option value="guided">引导调查（新功能测试）</option><option value="free">自由叙事</option></select></label><br>
+        <label>长度 <select name="length"><option value="short">短篇：12–18次行动</option><option value="standard" selected>标准：24–30次行动</option><option value="long">长篇：36–42次行动</option></select></label><br>
+        <label>心理资源 <select name="psychologicalPresentation"><option value="stress">心理承受力（非恐怖）</option><option value="sanity">理智（恐怖）</option></select></label>
+        <p>原有设定与同伴保留；每次只执行一个目标。自由叙事不采用固定调查预算。</p>
+        <button value="cancel">取消</button> <button value="confirm">确认并准备</button></form>`;
+      dialog.addEventListener('close', () => {
+        const form = dialog.querySelector('form');
+        const result = dialog.returnValue === 'confirm' ? Object.fromEntries(new FormData(form)) : null;
+        dialog.remove(); resolve(result);
+      }, { once: true });
+      document.body.appendChild(dialog); dialog.showModal();
+    });
   }
 
   async _saveWorld() {
@@ -929,6 +1011,7 @@ export class GameUIController {
       this._updateUI();
       await this._persistSession();
     } catch (err) {
+      if (err.silent) return;
       this._appendMessage(`存档失败: ${err.message}`, 'error');
     }
   }
@@ -944,6 +1027,7 @@ export class GameUIController {
       this._updateUI();
       await this._persistSession();
     } catch (err) {
+      if (err.silent) return;
       this._appendMessage(`进入人物设定失败: ${err.message}`, 'error');
     }
   }
@@ -958,6 +1042,7 @@ export class GameUIController {
       this._updateUI();
       await this._persistSession();
     } catch (err) {
+      if (err.silent) return;
       this._appendMessage(`保存玩家失败: ${err.message}`, 'error');
     }
   }
@@ -974,6 +1059,7 @@ export class GameUIController {
       this._updateUI();
       await this._persistSession();
     } catch (err) {
+      if (err.silent) return;
       this._appendMessage(`进入关键角色设定失败: ${err.message}`, 'error');
     }
   }
@@ -990,6 +1076,7 @@ export class GameUIController {
       this._updateUI();
       await this._persistSession();
     } catch (err) {
+      if (err.silent) return;
       this._appendMessage(`保存关键角色失败: ${err.message}`, 'error');
     }
   }
@@ -1004,11 +1091,13 @@ export class GameUIController {
       this._updateUI();
       await this._persistSession();
     } catch (err) {
+      if (err.silent) return;
       this._appendMessage(`邀请下一位角色失败: ${err.message}`, 'error');
     }
   }
 
   async _autoGenKeyChar() {
+    const requestOrigin = this.sessionId;
     if (this._isInputBlocked()) return;
     const scrollState = this._captureMessageScroll();
     this._appendMessage('根据世界观生成一个合理角色', 'user');
@@ -1026,8 +1115,10 @@ export class GameUIController {
       this._renderLlmResponse(resp, { scrollState });
       await this._persistSession();
     } catch (err) {
+      if (err.silent) return;
       this._appendMessage(`AI生成角色失败: ${err.message}`, 'error');
     } finally {
+      if (this.sessionId !== requestOrigin) return;
       this._clearWaiting();
       this._setInputLocked(false);
     }
@@ -1071,6 +1162,7 @@ export class GameUIController {
       );
       this.session = result.session;
     } catch (err) {
+      if (err.silent) return;
       this._appendMessage(`保存 NPC 失败: ${err.message}`, 'error');
       return;
     }
@@ -1241,7 +1333,7 @@ export class GameUIController {
       const suspicion = Number(this.session.suspicion) || 0;
       const suspicionState = getSuspicionDisplay(suspicion);
       this.scenarioStatus.textContent = `⏱ ${clock.currentTime} / ${clock.deadline} · ${getScenarioPhaseLabel(clock.phase)} · 证据 ${secured}/${evidenceTotal}（已发现${discovered}） · 真相 ${provenFacts}/${Object.keys(truths).length} · 怀疑 ${suspicion}/10（${suspicionState.label}）`;
-      if (this.session.scenarioRules?.pacingVersion === 3) this.scenarioStatus.textContent = `章节：${getScenarioPhaseLabel(clock.phase)} · 发车压力 ${Math.min(26, this.session.scenarioFlags?.investigation?.actions || 0)}/26 · 证据 ${secured}/${evidenceTotal} · 真相 ${provenFacts}/${Object.keys(truths).length} · 怀疑 ${suspicion}/10`;
+      if (this.session.scenarioRules?.pacingVersion === 3) { const limit = this.session.scenarioRules.actionBudget || 26; this.scenarioStatus.textContent = `章节：${getScenarioPhaseLabel(clock.phase)} · ${this.session.scenarioSource === 'generated' ? '调查压力' : '发车压力'} ${Math.min(limit, this.session.scenarioFlags?.investigation?.actions || 0)}/${limit} · 证据 ${secured}/${evidenceTotal} · 真相 ${provenFacts}/${Object.keys(truths).length} · 怀疑 ${suspicion}/10`; }
       this.scenarioStatus.title = `调查证据分为“已发现”和“已保全”；已保全证据才能支撑结局。怀疑度${suspicion}/10：${suspicionState.effect}。`;
     } else {
       // 普通自由剧本没有剧本时钟；明确告知入口，避免把空白状态误认为显示故障。
@@ -1297,7 +1389,12 @@ export class GameUIController {
       const knownIds = new Set(discoveredEvidence.map(item => item.id));
       const securedIds = new Set(discoveredEvidence.filter(item => item.secured).map(item => item.id));
       const facts = Object.entries(this.session.scenarioRules?.truths || {}).filter(([, ids]) => ids.some(id => knownIds.has(id)));
-      const notebook = facts.map(([key, ids]) => `${labels[key] || '调查事项'}：${ids.every(id => securedIds.has(id)) ? '已有证据支持' : '尚缺可复核的证明'}`).join('；');
+      const notebook = facts.map(([key, ids]) => {
+        const proven = ids.every(id => securedIds.has(id));
+        const statement = this.session.scenarioSource === 'generated' && proven
+          ? this.session.scenarioDefinition?.proofs.find(p => p.id === key)?.statement : null;
+        return `${statement || labels[key] || '调查事项'}：${proven ? '已有证据支持' : '尚缺可复核的证明'}`;
+      }).join('；');
       this.evidencePanel.innerHTML = evidenceHelp + (notebook ? `<div class="sidebar-evidence-help">调查笔记：${escapeHtml(notebook)}</div>` : '') + (discoveredEvidence.length
         ? discoveredEvidence.map(item => {
           const definition = catalog[item.id] || {};
@@ -1383,6 +1480,7 @@ export class GameUIController {
     this._syncInputControls();
     this._renderOptionButtons();
     this._updateActionButtons();
+    this._renderPreparationControls();
   }
 
   /**
@@ -1429,7 +1527,8 @@ export class GameUIController {
       if (npc.id === 'npc_000' || npc.importance === 'player') {
         const hpStr = npc.hp != null ? `${npc.hp}/${npc.maxHp ?? '?'}` : '?';
         const sanStr = npc.san != null ? `${npc.san}/${npc.maxSan ?? '?'}` : '?';
-        line = `HP ${escapeHtml(hpStr)} | SAN ${escapeHtml(sanStr)} | ${escapeHtml(getSanLabel(npc.san))}`;
+        const mentalValue = this.session.scenarioSource === 'generated' && npc.maxSan > 0 && npc.san != null ? npc.san / npc.maxSan * 60 : npc.san;
+        line = `HP ${escapeHtml(hpStr)} | ${this.session.investigationSetup?.psychologicalPresentation === 'stress' ? '心理承受力' : '理智'} ${escapeHtml(sanStr)} | ${escapeHtml(getSanLabel(mentalValue))}`;
         const trauma = this.session?.sanity?.activeTrauma;
         if (trauma?.label) line += ` | 创伤：${trauma.label}`;
         if (npc.attributes) {
@@ -1499,6 +1598,14 @@ export class GameUIController {
     `;
     this.messagesEl.appendChild(el);
 
+    if (this.session.scenarioSource === 'generated') {
+      el.querySelector('.restart-hint').textContent = '原结局会保留。重玩创建新存档并使用同一个案件；另案保留世界观、主角及同伴设定。';
+      el.querySelector('#btn-restart-yes').textContent = '重玩同一案件';
+      const another = document.createElement('button'); another.className = 'restart-btn'; another.textContent = '保留设定，生成新案';
+      another.addEventListener('click', () => this._restartStory(true));
+      el.querySelector('.restart-btns').appendChild(another);
+    }
+
     document.getElementById('btn-restart-yes').addEventListener('click', () => this._restartStory());
     document.getElementById('btn-restart-later').addEventListener('click', () => this._postponeRestart());
   }
@@ -1506,7 +1613,7 @@ export class GameUIController {
   /**
    * 用户点"是"重启故事。
    */
-  async _restartStory() {
+  async _restartStory(regenerate = false) {
     const btnYes = document.getElementById('btn-restart-yes');
     const btnLater = document.getElementById('btn-restart-later');
     if (btnYes) btnYes.disabled = true;
@@ -1517,7 +1624,12 @@ export class GameUIController {
 
     try {
       const prevDisplayLen = this.session?.displayLog?.length || 0;
-      const resp = await apiClient.restartStory(this.session);
+      const resp = await apiClient.restartStory(this.session, { regenerate });
+      if (resp.session.id !== this.sessionId) {
+        this._clearWaiting();
+        await this._loadSession(resp.session);
+        return;
+      }
       this.session = resp.session;
       // 移除重启面板
       const panel = document.getElementById('restart-options');
@@ -1546,6 +1658,7 @@ export class GameUIController {
       this._updateUI();
       await this._persistSession();
     } catch (err) {
+      if (err.silent) return;
       this._appendMessage(`错误: ${err.message}`, 'error');
       this._clearWaiting();
       // 重新启用按钮让用户可以重试
@@ -1719,6 +1832,7 @@ export class GameUIController {
         await this._persistSession();
       }
     } catch (err) {
+      if (err.silent) return;
       this._appendMessage(`删除失败: ${err.message}`, 'error');
     }
   }
@@ -1861,6 +1975,7 @@ export class GameUIController {
         await this._persistSession();
       }
     } catch (err) {
+      if (err.silent) return;
       this._appendMessage(`保存失败: ${err.message}`, 'error');
     }
   }
@@ -1894,6 +2009,7 @@ export class GameUIController {
         await this._persistSession();
       }
     } catch (err) {
+      if (err.silent) return;
       this._appendMessage(`删除失败: ${err.message}`, 'error');
     }
   }

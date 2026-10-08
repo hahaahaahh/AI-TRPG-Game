@@ -1,8 +1,10 @@
 import { evidenceIntent } from './InvestigationDirector.js';
+import { isGenerated, validateGeneratedAction } from './GeneratedInvestigationRuntime.js';
 import { componentAccess, contactWitness, hasDanger, knownRoute, locationPatterns, requestedComponents } from '../../../src/shared/InvestigationRules.mjs';
 
 // Read-only preflight: never schedule events, award evidence or spend pressure.
 export function validateAction(session,input) {
+  if (isGenerated(session)) return validateGeneratedAction(session,input,session.scenarioFlags.actionProposal);
   const text=String(input).split('对应行动：').pop().trim();
   const reject=reason=>({ok:false,message:`【行动尚未执行】${reason}\n请修改输入或选择证据详情中的具体行动。本次不消耗行动压力。`});
   const main=text.split(/如果|若有人|if\b/i)[0]; // Conditional intentions are not extra executed actions.

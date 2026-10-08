@@ -54,9 +54,12 @@ function splitModels(value, fallback) {
   return [...new Set(values)];
 }
 
-function buildCapabilities(provider, model) {
+function buildCapabilities(provider, model, baseUrl = 'https://api.deepseek.com') {
   if (provider === 'deepseek') {
-    return { reasoningEffort: false, deepseekThinking: true, reasoningHistory: true, toolChoice: true };
+    let official = false;
+    try { official = new URL(baseUrl).hostname === 'api.deepseek.com'; } catch {}
+    const modern = /^(deepseek-flash|deepseek-v4(?:\.1)?-(?:flash|pro)(?:-.*)?)$/i.test(model);
+    return { reasoningEffort: official && modern, deepseekThinking: true, reasoningHistory: true, toolChoice: true };
   }
   if (provider === 'soclaas') {
     // Only opt models into optional parameters when their contract is known.
@@ -72,15 +75,15 @@ function buildCapabilities(provider, model) {
   return { reasoningEffort: false, deepseekThinking: false, reasoningHistory: false, toolChoice: true };
 }
 
-function buildFlowPolicies(provider, capabilities = {}) {
+function buildFlowPolicies(provider, capabilities = {}, env = process.env) {
   const policies = {};
-  for (const flow of ['WORLD_GEN', 'CHARACTER_GEN', 'KEY_CHARACTER_GEN', 'STORY_OPENING', 'NARRATION_I', 'NARRATION_II', 'HISTORY_SUMMARY', 'ENDING_GEN']) {
+  for (const flow of ['ACTION_INTERPRET', 'SCENARIO_GEN', 'WORLD_GEN', 'CHARACTER_GEN', 'KEY_CHARACTER_GEN', 'STORY_OPENING', 'NARRATION_I', 'NARRATION_II', 'HISTORY_SUMMARY', 'ENDING_GEN']) {
     const routine = ROUTINE_FLOWS.has(flow);
     const summary = flow === 'HISTORY_SUMMARY';
     const ending = flow === 'ENDING_GEN';
-    const character = flow === 'CHARACTER_GEN' || flow === 'KEY_CHARACTER_GEN';
+    const character = flow === 'CHARACTER_GEN' || flow === 'KEY_CHARACTER_GEN' || flow === 'SCENARIO_GEN';
     policies[flow] = {
-      maxTokens: summary ? 2048 : (routine ? 4096 : (character ? 8192 : 4096)),
+      maxTokens: flow === 'ACTION_INTERPRET' ? 1024 : summary ? 2048 : (routine ? 4096 : (character ? 8192 : 4096)),
       timeoutMs: ending || character ? 150_000 : (summary ? 90_000 : 120_000),
       timeoutRetries: 0,
       reasoningEffort: provider === 'soclaas' && capabilities.reasoningEffort
@@ -88,6 +91,29 @@ function buildFlowPolicies(provider, capabilities = {}) {
         : null,
       thinking: provider === 'deepseek' ? Boolean(ending || character) : false,
     };
+  }
+  // Case preparation is substantially larger than narration. These caps are
+  // output allowances, not input-context settings or desired response lengths.
+  const scenario = policies.SCENARIO_GEN;
+  scenario.maxTokens = provider === 'deepseek' ? 32768 : provider === 'soclaas' ? 16384 : 8192;
+  scenario.timeoutMs = provider === 'deepseek' || provider === 'soclaas' ? 300000 : 150000;
+  if (provider === 'deepseek' && capabilities.reasoningEffort) scenario.reasoningEffort = 'low';
+  const prefix = provider.toUpperCase();
+  const configured = suffix => env[`${prefix}_SCENARIO_${suffix}`] ?? env[`LLM_SCENARIO_${suffix}`];
+  for (const [suffix, field] of [['MAX_TOKENS','maxTokens'], ['TIMEOUT_MS','timeoutMs']]) {
+    const value = configured(suffix);
+    if (value !== undefined && value !== '') {
+      if (!Number.isSafeInteger(Number(value)) || Number(value) <= 0) throw new Error(`${prefix}_SCENARIO_${suffix} must be a positive integer`);
+      scenario[field] = Number(value);
+    }
+  }
+  const effort = configured('REASONING_EFFORT');
+  scenario.reasoningExplicit = Boolean(effort);
+  if (effort && capabilities.reasoningEffort) {
+    const allowed = provider === 'deepseek' ? ['none','low','high','max'] : ['none','low','medium','high'];
+    if (!allowed.includes(effort)) throw new Error(`${prefix}_SCENARIO_REASONING_EFFORT is unsupported`);
+    scenario.reasoningEffort = effort;
+    if (provider === 'deepseek') scenario.thinking = effort !== 'none';
   }
   return policies;
 }
@@ -134,7 +160,7 @@ export function getLLMProfiles(env = process.env) {
         model,
         configured: hasConfiguredKey(soclaasKey),
         capabilities,
-        flowPolicies: buildFlowPolicies('soclaas', capabilities),
+        flowPolicies: buildFlowPolicies('soclaas', capabilities, env),
       });
     }
   }
@@ -150,7 +176,7 @@ export function getLLMProfiles(env = process.env) {
   if (deepSeekRequested) {
     const primaryModel = env.DEEPSEEK_MODEL || env.LLM_MODEL || 'deepseek-v4-pro';
     for (const model of splitModels(env.DEEPSEEK_MODELS, primaryModel)) {
-      const capabilities = buildCapabilities('deepseek', model);
+      const capabilities = buildCapabilities('deepseek', model, env.DEEPSEEK_BASE_URL || env.LLM_BASE_URL || 'https://api.deepseek.com');
       const configured = hasConfiguredKey(deepSeekKey);
       profiles.push({
         id: profileId('deepseek', model),
@@ -164,7 +190,7 @@ export function getLLMProfiles(env = process.env) {
         model,
         configured,
         capabilities,
-        flowPolicies: buildFlowPolicies('deepseek', capabilities),
+        flowPolicies: buildFlowPolicies('deepseek', capabilities, env),
       });
     }
   }
@@ -184,7 +210,7 @@ export function getLLMProfiles(env = process.env) {
       model,
       configured: hasConfiguredKey(env.LLM_API_KEY),
       capabilities: buildCapabilities('generic', model),
-      flowPolicies: buildFlowPolicies('generic'),
+      flowPolicies: buildFlowPolicies('generic', {}, env),
     });
   }
 

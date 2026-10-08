@@ -1,5 +1,11 @@
 import assert from 'node:assert/strict';
-import { GameUIController } from '../../src/ui/GameUIController.js';
+import { GameUIController, escapeHtml } from '../../src/ui/GameUIController.js';
+
+const action = { kind: 'preserve', evidenceId: 'evidence_001', component: 'copy' };
+const attribute = escapeHtml(JSON.stringify(action));
+assert.ok(!attribute.includes('"'), 'JSON action quotes must not terminate data-action attributes');
+assert.deepEqual(JSON.parse(attribute.replace(/&quot;/g, '"')), action);
+assert.equal(escapeHtml('<img title="x">&'), '&lt;img title=&quot;x&quot;&gt;&amp;');
 
 // Exercise the real controller lock transitions without starting a browser/app.
 const previousDocument = globalThis.document;

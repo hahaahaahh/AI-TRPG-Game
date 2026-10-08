@@ -1,4 +1,5 @@
 import { scenarioProgressService } from './ScenarioProgressService.js';
+import { isGenerated, budget, resourceLabel } from './GeneratedInvestigationRuntime.js';
 
 export class NecessarySettingsBuilder {
   build(session, { narrationProfile = null } = {}) {
@@ -11,7 +12,7 @@ export class NecessarySettingsBuilder {
       const director = session.scenarioFlags?.investigation;
       lines.push(`【引擎行动记录】${JSON.stringify(director?.transaction || {})}`);
       lines.push('仅描述引擎已解决的结果。不得自行增加伤害、证据保全、获得物品或战斗结果。未解决检定只能描述准备，不能声称命中。重复前文不算推进。章节与行动决定进度，分钟仅为氛围，不得自行宣布发车。');
-      lines.push(`【章节】${director?.act || 'opening'}；已完成行动${director?.actions || 0}/26。每次回应必须体现本次行动的新结果。`);
+      lines.push(`【章节】${director?.act || 'opening'}；已完成行动${director?.actions || 0}/${budget(session)}。每次回应必须体现本次行动的新结果。`);
     }
 
     if (session.keyCharacters && session.keyCharacters.length > 0) {
@@ -145,6 +146,12 @@ export class NecessarySettingsBuilder {
       }
     }
 
+    if (isGenerated(session)) {
+      lines.push(`【GM隐藏案件，不直接展示】${JSON.stringify({ truth: session.scenarioDefinition.hiddenTruth, motives: session.scenarioDefinition.npcs.map(n=>({id:n.id,motivation:n.motivation})), crisis: session.scenarioDefinition.crisis, endings: session.scenarioDefinition.endings })}`);
+      lines.push(`这是玩家自选世界观的有限调查，不是白桦站，不默认存在列车、矿难、异常或林晚。心理资源称为${resourceLabel(session)}。若为心理承受力，压力来自符合题材的风险、道德冲突或危险，不添加超自然恐怖。虚拟时钟仅为兼容进度表示，不写作真实六点发车。中央危机参与者会接近玩家当前地点。只描述本轮引擎回执确认的行动结果；不要凭空宣布取证成功、合作、伤害或证人移动。`);
+      if (session.scenarioFlags.investigation_closed || session.finaleState?.stage) lines.push('调查已经收束；不得引入新的调查分支或未结清的威胁。结局必须明确主角、相关人物、眼前危机与真相材料的去向。');
+      return lines.filter(line => !line.includes('林晚的证词') && !line.includes('不得自行宣布发车')).join('\n');
+    }
     return lines.join('\n');
   }
 }

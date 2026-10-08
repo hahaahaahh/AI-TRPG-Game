@@ -1,14 +1,15 @@
 const API_BASE = '/api';
 
 export class ApiClient {
+  _fetch(url, options = {}) { return fetch(url, { ...options, signal: this.signal }); }
   async getLlmProfiles() {
-    const res = await fetch(`${API_BASE}/llm/profiles`);
+    const res = await this._fetch(`${API_BASE}/llm/profiles`);
     if (!res.ok) throw new Error(await this._errorText(res));
     return res.json();
   }
 
   async createSession(title = '新剧本', llmProfileId = null) {
-    const res = await fetch(`${API_BASE}/sessions`, {
+    const res = await this._fetch(`${API_BASE}/sessions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ title, llmProfileId }),
@@ -18,7 +19,7 @@ export class ApiClient {
   }
 
   async createBirchStationTutorial(llmProfileId = null) {
-    const res = await fetch(`${API_BASE}/sessions/tutorials/birch-station`, {
+    const res = await this._fetch(`${API_BASE}/sessions/tutorials/birch-station`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ llmProfileId }),
@@ -32,7 +33,7 @@ export class ApiClient {
   }
 
   async enterWorldSetting(session) {
-    const res = await fetch(`${API_BASE}/sessions/${session.id}/enter-world`, {
+    const res = await this._fetch(`${API_BASE}/sessions/${session.id}/enter-world`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ session }),
@@ -42,7 +43,7 @@ export class ApiClient {
   }
 
   async enterCharacterSetting(session) {
-    const res = await fetch(`${API_BASE}/sessions/${session.id}/enter-character`, {
+    const res = await this._fetch(`${API_BASE}/sessions/${session.id}/enter-character`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ session }),
@@ -52,7 +53,7 @@ export class ApiClient {
   }
 
   async saveWorld(session) {
-    const res = await fetch(`${API_BASE}/sessions/${session.id}/save-world`, {
+    const res = await this._fetch(`${API_BASE}/sessions/${session.id}/save-world`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ session }),
@@ -62,7 +63,7 @@ export class ApiClient {
   }
 
   async saveCharacter(session) {
-    const res = await fetch(`${API_BASE}/sessions/${session.id}/save-character`, {
+    const res = await this._fetch(`${API_BASE}/sessions/${session.id}/save-character`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ session }),
@@ -72,7 +73,7 @@ export class ApiClient {
   }
 
   async updatePlayer(session, player) {
-    const res = await fetch(`${API_BASE}/sessions/${session.id}/player`, {
+    const res = await this._fetch(`${API_BASE}/sessions/${session.id}/player`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ session, player }),
@@ -84,7 +85,7 @@ export class ApiClient {
   // ── 关键角色 ──
 
   async enterKeyCharacterSetting(session) {
-    const res = await fetch(`${API_BASE}/sessions/${session.id}/enter-key-character`, {
+    const res = await this._fetch(`${API_BASE}/sessions/${session.id}/enter-key-character`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ session }),
@@ -94,7 +95,7 @@ export class ApiClient {
   }
 
   async saveKeyCharacter(session) {
-    const res = await fetch(`${API_BASE}/sessions/${session.id}/save-key-character`, {
+    const res = await this._fetch(`${API_BASE}/sessions/${session.id}/save-key-character`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ session }),
@@ -104,7 +105,7 @@ export class ApiClient {
   }
 
   async inviteNextKeyCharacter(session) {
-    const res = await fetch(`${API_BASE}/sessions/${session.id}/invite-next-key-character`, {
+    const res = await this._fetch(`${API_BASE}/sessions/${session.id}/invite-next-key-character`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ session }),
@@ -114,7 +115,7 @@ export class ApiClient {
   }
 
   async getStoryOpenConfirm(session) {
-    const res = await fetch(`${API_BASE}/sessions/${session.id}/open-story-confirm`, {
+    const res = await this._fetch(`${API_BASE}/sessions/${session.id}/open-story-confirm`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ session }),
@@ -126,7 +127,7 @@ export class ApiClient {
   // ── 设定增删改 ──
 
   async updateWorldSettings(session, worldSettings) {
-    const res = await fetch(`${API_BASE}/sessions/${session.id}/world-settings`, {
+    const res = await this._fetch(`${API_BASE}/sessions/${session.id}/world-settings`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ session, worldSettings }),
@@ -136,7 +137,7 @@ export class ApiClient {
   }
 
   async _patchEntity(session, path, index, data) {
-    const res = await fetch(`${API_BASE}/sessions/${session.id}/${path}`, {
+    const res = await this._fetch(`${API_BASE}/sessions/${session.id}/${path}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ session, index, data }),
@@ -146,7 +147,7 @@ export class ApiClient {
   }
 
   async _deleteEntity(session, path, index) {
-    const res = await fetch(`${API_BASE}/sessions/${session.id}/${path}/${index}`, {
+    const res = await this._fetch(`${API_BASE}/sessions/${session.id}/${path}/${index}`, {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ session }),
@@ -164,18 +165,18 @@ export class ApiClient {
   async upsertKeyCharacter(session, index, data) { return this._patchEntity(session, 'key-characters', index, data); }
   async deleteKeyCharacter(session, index) { return this._deleteEntity(session, 'key-characters', index); }
 
-  async openStory(session, { onDebug } = {}) {
-    const res = await fetch(`${API_BASE}/sessions/${session.id}/open-story`, {
+  async openStory(session, { onDebug, preparationCommand } = {}) {
+    const res = await this._fetch(`${API_BASE}/sessions/${session.id}/open-story`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session }),
+      body: JSON.stringify({ session, preparationCommand }),
     });
     if (!res.ok) throw new Error(await this._errorText(res));
     return this._consumeSseStream(res, onDebug);
   }
 
   async sendMessage(session, text, { onDebug, action } = {}) {
-    const res = await fetch(`${API_BASE}/sessions/${session.id}/message`, {
+    const res = await this._fetch(`${API_BASE}/sessions/${session.id}/message`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ session, text, action }),
@@ -185,7 +186,7 @@ export class ApiClient {
   }
 
   async confirmDice(session, { onDebug, onSystemMessage } = {}) {
-    const res = await fetch(`${API_BASE}/sessions/${session.id}/dice-confirm`, {
+    const res = await this._fetch(`${API_BASE}/sessions/${session.id}/dice-confirm`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ session }),
@@ -199,11 +200,11 @@ export class ApiClient {
    * @param {Object} session - 当前 session
    * @returns {Promise<{session: Object}>}
    */
-  async restartStory(session) {
-    const res = await fetch(`${API_BASE}/sessions/${session.id}/restart-story`, {
+  async restartStory(session, { regenerate = false } = {}) {
+    const res = await this._fetch(`${API_BASE}/sessions/${session.id}/restart-story`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session }),
+      body: JSON.stringify({ session, regenerate }),
     });
     if (!res.ok) throw new Error(await this._errorText(res));
     return res.json();
@@ -286,7 +287,7 @@ export class ApiClient {
   }
 
   async cancelDice(session) {
-    const res = await fetch(`${API_BASE}/sessions/${session.id}/dice-cancel`, {
+    const res = await this._fetch(`${API_BASE}/sessions/${session.id}/dice-cancel`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ session }),
@@ -300,11 +301,11 @@ export class ApiClient {
    * @param {Object} session - 当前 session
    * @returns {Promise<{session: Object}>}
    */
-  async restartStory(session) {
-    const res = await fetch(`${API_BASE}/sessions/${session.id}/restart-story`, {
+  async restartStory(session, { regenerate = false } = {}) {
+    const res = await this._fetch(`${API_BASE}/sessions/${session.id}/restart-story`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session }),
+      body: JSON.stringify({ session, regenerate }),
     });
     if (!res.ok) throw new Error(await this._errorText(res));
     return res.json();
@@ -320,4 +321,25 @@ export class ApiClient {
   }
 }
 
-export const apiClient = new ApiClient();
+let coordinator = null;
+export function coordinateSessionRequests(value) { coordinator = value; }
+export const apiClient = new Proxy(new ApiClient(), {
+  get(target, name) {
+    const method = target[name];
+    if (typeof method !== 'function') return method;
+    return (...args) => {
+      if (!coordinator || !args[0]?.id || String(name).startsWith('_')) return method.apply(target, args);
+      const snapshot = structuredClone(args[0]);
+      return coordinator.run(snapshot, (signal, visible) => {
+        const client = new ApiClient(); client.signal = signal;
+        const scopedArgs = args.map((arg, index) => {
+          if (index === 0) return snapshot;
+          if (!arg || typeof arg !== 'object') return arg;
+          return Object.fromEntries(Object.entries(arg).map(([key, value]) => [key,
+            typeof value === 'function' ? (...values) => { if (visible()) value(...values); } : value]));
+        });
+        return method.apply(client, scopedArgs);
+      }, { allowNewSession: name === 'restartStory' });
+    };
+  },
+});

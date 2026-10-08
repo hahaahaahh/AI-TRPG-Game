@@ -144,6 +144,8 @@ export const FLOW_TEMPERATURE = {
 };
 
 export const FLOW_MAX_TOKENS = {
+  [FlowType.ACTION_INTERPRET]: 1024,
+  [FlowType.SCENARIO_GEN]: 8192,
   [FlowType.WORLD_GEN]: 4096,
   [FlowType.CHARACTER_GEN]: 8192,         // 思考模式 + 数值计算，需要更大额度（4096 易被思考截断）
   [FlowType.KEY_CHARACTER_GEN]: 8192,     // 同上
@@ -156,6 +158,7 @@ export const FLOW_MAX_TOKENS = {
 
 // ── thinking 模式配置（DeepSeek V3.2+ 支持，与 strict 模式可共存） ──
 export const FLOW_THINKING = {
+  [FlowType.SCENARIO_GEN]: true,
   [FlowType.WORLD_GEN]: true,
   [FlowType.CHARACTER_GEN]: true,
   [FlowType.KEY_CHARACTER_GEN]: true,
@@ -170,6 +173,7 @@ export const FLOW_THINKING = {
 // 仅作为流程层提示；最终是否发送及发送何值由模型配置的 capabilities 与
 // flowPolicies 决定。DeepSeek 不接收此字段，未知兼容模型也会自动省略。
 export const FLOW_REASONING_EFFORT = {
+  [FlowType.SCENARIO_GEN]: 'medium',
   [FlowType.WORLD_GEN]: 'high',
   [FlowType.CHARACTER_GEN]: 'high',        // CoC 数值计算虽严谨，但 'max' 易导致思考截断，用 'high' 已足够
   [FlowType.KEY_CHARACTER_GEN]: 'high',    // 同上
@@ -213,6 +217,7 @@ import { NARRATION, SUMMARY, WORLD_IMPRESSION, ENDING_TEXT } from '../domain/Nar
 import { CARD_KEY } from '../domain/CharacterCardSchema.js';
 
 export const FLOW_REQUIRED_FIELD = {
+  [FlowType.SCENARIO_GEN]: 'hiddenTruth',
   [FlowType.WORLD_GEN]: WORLD_IMPRESSION,
   [FlowType.CHARACTER_GEN]: CARD_KEY,
   [FlowType.KEY_CHARACTER_GEN]: CARD_KEY,
@@ -224,6 +229,8 @@ export const FLOW_REQUIRED_FIELD = {
 };
 
 const templates = {
+  [FlowType.ACTION_INTERPRET]: { systemInstruction: `${SYSTEM_PREFIX}\n仅把玩家本次行动映射为一种已列出的行动，不推断成功、不授予效果。多个目标、假设、否定、没有明确行动或无法确定目标时kind=unclear。targetId只能使用提供的已知实体；保全还必须指定已发现证据的componentId。没有目标的现场调查可用空字符串。不输出任何叙事。` },
+  [FlowType.SCENARIO_GEN]: { systemInstruction: `${SYSTEM_PREFIX}\n生成一个有限行动预算的调查案件，不是开放式战役。严格保留用户世界观、主角与同伴；核心真相在开幕前确定。不得输出脚本或任意执行表达式。所有地点通过双向通路连接，ID使用loc/npc/item/evidence/fact/event加三位数字，npc_000保留给主角。同伴通过companionIndex逐一映射。工具由equ equipment能力标识匹配组件capability，必须符合世界观。每个证人或需要合作的材料必须有不依赖检定成功的可达alternativeLocationId及alternativeAction。线索前置不能循环。事件必须有现场、远处可感知、到场余波三种提示；远处提示不泄露真相。恰好一个crisis事件；四选项最后固定D. 自由行动。危机须有明确逃脱、谈判、交出指定争夺物和失败退却后果。结局包括证据不完整时的明确收束，不得等待所有真相被证明。非恐怖题材不得加入超自然恐怖。使用不超过预算的最小案件规模，保证移动、调查、组件保全与危机后仍有作出最终决定的机会。` },
   [FlowType.WORLD_GEN]: { systemInstruction: WORLD_INSTRUCTION },
   [FlowType.CHARACTER_GEN]: { systemInstruction: CHARACTER_INSTRUCTION },
   [FlowType.KEY_CHARACTER_GEN]: { systemInstruction: KEY_CHARACTER_INSTRUCTION },

@@ -16,6 +16,11 @@ import { idAllocator } from '../services/IdAllocator.js';
 import { saveExtractor } from '../services/SaveExtractor.js';
 import { damageResolver } from '../services/DamageResolver.js';
 import { GUIDE, isHybrid, state as investigationState, evidenceIntent, prepareAction, resolveAction, observeNpcs, repeatedNarration, unsupportedEffects, engineNarrative, enterAnnouncedDanger } from '../services/InvestigationDirector.js';
+import { scenarioGenerationService } from '../services/ScenarioGenerationService.js';
+import { normalizeInvestigationSetup } from '../domain/GeneratedScenario.js';
+import { isGenerated, initializeGeneratedCase, budget, commitmentAt, resourceLabel, generatedOptions } from '../services/GeneratedInvestigationRuntime.js';
+import { finaleOptions } from '../domain/FinaleState.js';
+import { interpretAction } from '../services/ActionInterpretationService.js';
 import { validateAction } from '../services/ActionValidator.js';
 import { actionText } from '../../../src/shared/InvestigationRules.mjs';
 import { endingService } from '../services/EndingService.js';
@@ -511,10 +516,31 @@ export class GameOrchestrator {
     };
   }
 
-  async openStory(sessionId, { onDebug } = {}) {
+  async openStory(sessionId, { onDebug, preparationCommand = null } = {}) {
     const session = this.getSession(sessionId);
     const check = phaseManager.canPerformAction(session, GameAction.OPEN_STORY);
     if (!check.allowed) throw new Error(check.reason);
+
+    session.investigationSetup = normalizeInvestigationSetup(session.investigationSetup || {});
+    if (session.investigationSetup.mode === 'guided' && !session.scenarioDefinition) {
+      try {
+        const status=await scenarioGenerationService.step(session, this.llmProvider, { onDebug, command:preparationCommand });
+        session.subState = SubState.AWAITING_INPUT;
+        this.repository.save(session);
+        // Separate response is deliberate: the browser must persist this case
+        // before it sends the next open-story request to generate prose.
+        const stage=session.scenarioPreparation?.stage;
+        const label={outline:'案件构思：1/3',routes:'证据路线：2/3',conclusion:'事件与结局：3/3'}[stage] || '完成';
+        return { session: session.toClientJSON(), result: { branch: status==='ready'?'SCENARIO_PREPARED':status==='paused'?'SCENARIO_PAUSED':'SCENARIO_PROGRESS', scenarioMessages: [status==='ready'?'【案件已准备】已通过规则校验，保存后开始开幕。':status==='paused'?'【准备暂停】进度已保存，请继续准备或重新准备案件。':`【准备进度】${label}；本次已请求${session.scenarioPreparation.calls}/6次。`] } };
+      } catch (error) {
+        session.subState = SubState.AWAITING_INPUT;
+        this.repository.save(session);
+        onDebug?.({type:'scenario_preparation_failure',content:String(error.message)});
+        return { session: session.toClientJSON(), result: { branch: 'SCENARIO_PREPARATION_FAILED', scenarioMessages: [session.generationStatus?.message || '案件准备暂未通过校验，设定与已有进度已保留。请重试或查看主持人诊断。'] } };
+      }
+    }
+    if (isGenerated(session) && !session.scenarioId) initializeGeneratedCase(session);
+    const setupPhase = session.phase;
 
     phaseManager.advancePhase(session, 'OPEN_STORY');
     session.subState = SubState.LLM_STREAMING;
@@ -524,6 +550,12 @@ export class GameOrchestrator {
 
     try {
       const result = await this._runLlmFlow(session, FlowType.STORY_OPENING, '', onDebug);
+
+      if (isGenerated(session)) {
+        const introduction = `【引导调查】${session.scenarioDefinition.hook}\n${GUIDE}\n本局正常调查预算${budget(session)}次有效行动；达到门槛后最多三次危机行动，再作一次最终决定。心理资源称为“${resourceLabel(session)}”。右侧地点用于查看已知通路；人物栏只显示可观察状态；证据“详细信息”免费，执行保全按钮会提交一次行动。“已发现”不计入证明，全部组件保全后才计入真相。查看调查笔记可免费核对缺口。`;
+        this._pushDisplay(session, 'system', introduction);
+        result.scenarioMessages = [...(result.scenarioMessages || []), introduction];
+      }
 
       // 缓存故事开幕（用于结局重置时重新发送）
       if (result?.parsed) {
@@ -546,6 +578,7 @@ export class GameOrchestrator {
         systemMessages: [GameConfig.GUIDANCE.STORY_OPENING],
       };
     } catch (err) {
+      if (isGenerated(session)) { session.phase = setupPhase; session.openingDone = false; }
       session.subState = SubState.AWAITING_INPUT;
       this.repository.save(session);
       throw err;
@@ -601,6 +634,22 @@ export class GameOrchestrator {
     this.repository.save(session);
 
     let diceAwaiting = false;
+    if (isGenerated(session)) {
+      const choice=/^(?:选项\s*)?([ABC])[.。]?$/i.exec(String(userText).trim());
+      const event=session.scheduledEvents.find(e=>e.id===session.activeScene?.eventId);
+      if(!action && choice && !session.finaleState?.stage && event?.responses?.length && session.optionBuffer.includes(event.responses['ABC'.indexOf(choice[1].toUpperCase())].label)) {
+        const descriptor=event.responses['ABC'.indexOf(choice[1].toUpperCase())].action;
+        action={kind:descriptor.kind,evidenceId:['investigate','preserve'].includes(descriptor.kind)?descriptor.targetId:undefined,
+          npcId:descriptor.kind==='cooperate'?descriptor.targetId:undefined,locationId:descriptor.kind==='move'?descriptor.targetId:undefined,component:descriptor.componentId};
+      }
+      delete session.scenarioFlags.actionProposal;
+      if (action && ['move','cooperate','preserve','investigate','escape','negotiate','surrender'].includes(action.kind) && actionText(session, action)) {
+        session.scenarioFlags.actionProposal = {
+          kind: action.kind, targetId: action.evidenceId || action.npcId || action.locationId || '',
+          componentId: action.component || '', ids: action.evidenceId ? [action.evidenceId] : [],
+        };
+      }
+    }
     if (action) userText = actionText(session,action) || '这个';
     const resolvedUserText = session.phase === Phase.STORY_PLAY
       ? optionResolver.resolve(userText, session.optionBuffer)
@@ -622,7 +671,11 @@ export class GameOrchestrator {
         return { session: session.toClientJSON(), result: { branch:'NOTEBOOK', scenarioMessages:[note] } };
       }
       if (isHybrid(session)) {
-        const preflight = session.finaleState?.stage || /最终决定|final (?:choice|decision)/i.test(modelUserText) ? {ok:true} : validateAction(session,modelUserText);
+        let preflight = session.finaleState?.stage || /最终决定|final (?:choice|decision)/i.test(modelUserText) ? {ok:true} : validateAction(session,modelUserText);
+        if (isGenerated(session) && preflight.needsInterpretation) {
+          const proposal = await interpretAction(session, modelUserText, this.llmProvider, onDebug);
+          if (proposal) { session.scenarioFlags.actionProposal = proposal; preflight = validateAction(session,modelUserText); }
+        }
         const clarification = !preflight.ok ? preflight.message : evidenceIntent(session, modelUserText).clarification;
         if (clarification) {
           session.subState = SubState.AWAITING_INPUT;
@@ -632,7 +685,7 @@ export class GameOrchestrator {
         if (preflight.cost !== undefined) this._recordSystemMessage(session,`【本次行动】${preflight.kind==='move' ? '移动' : '处理一个当前目标'}；消耗${preflight.cost}次有效行动。检定失败仍消耗行动，取消未执行的检定不消耗。`);
       }
       const director = session.scenarioFlags.investigation;
-      const commitmentOpen = isHybrid(session) ? director?.actions >= 24 || director?.climaxResolvedAt != null : session.scenarioClock?.currentTime >= '05:40';
+      const commitmentOpen = isHybrid(session) ? director?.actions >= commitmentAt(session) || director?.climaxResolvedAt != null : session.scenarioClock?.currentTime >= '05:40';
       if (commitmentOpen && /最终决定|final (?:choice|decision)|选项|^[ABCD][.。]?$/i.test(modelUserText)) {
         const choice = scenarioProgressService.detectFinalChoice(modelUserText);
         if (choice && !/公开.*销毁|销毁.*公开|[ABCD].*(?:和|与|或|、).*?[ABCD]/i.test(userText)) {
@@ -890,7 +943,7 @@ export class GameOrchestrator {
       const rationale = parsed?.time_cost_rationale || '本次行动推进了调查。';
       const currentMinutes = Number(clockResult.currentTime.slice(0, 2)) * 60 + Number(clockResult.currentTime.slice(3));
       const remainingMinutes = Math.max(0, 360 - currentMinutes);
-      const timeMessage = isHybrid(session) ? `【完成行动 ${investigationState(session).actions} · 发车压力 ${Math.min(26, investigationState(session).actions)}/26】时段仅作氛围参考，调查按章节和行动推进。` : `【第${session.scenarioClock.turn}回合 · 耗时 ${clockResult.cost} 分钟 · 当前 ${clockResult.currentTime} · 距发车 ${Math.floor(remainingMinutes / 60)}小时${remainingMinutes % 60}分】${rationale}`;
+      const timeMessage = isHybrid(session) ? `【完成行动 ${investigationState(session).actions} · ${isGenerated(session) ? '调查压力' : '发车压力'} ${Math.min(budget(session), investigationState(session).actions)}/${budget(session)}】时段仅作氛围参考，调查按章节和行动推进。` : `【第${session.scenarioClock.turn}回合 · 耗时 ${clockResult.cost} 分钟 · 当前 ${clockResult.currentTime} · 距发车 ${Math.floor(remainingMinutes / 60)}小时${remainingMinutes % 60}分】${rationale}`;
       appendSystemMessage(timeMessage);
     }
     if (eventResult.playerConsequence) appendSystemMessage(eventResult.playerConsequence);
@@ -1089,6 +1142,14 @@ export class GameOrchestrator {
       const parsed = jsonOutputParser.parse(rawText);
       if (parsed && parsed[requiredField] !== undefined) {
         const safeParsed = enforceDeparture(session, playerFacingTextSanitizer.sanitizeParsed(session, parsed));
+        if (isGenerated(session) && [FlowType.STORY_OPENING,FlowType.NARRATION_I,FlowType.NARRATION_II].includes(flowType)) {
+          safeParsed.locations = [];
+          safeParsed.items = [];
+          safeParsed.current_location_id = session.playerLocationId;
+          safeParsed.npcs = (safeParsed.npcs || []).filter(n => session.npcs.some(existing => existing.id === n.id && existing.visibility !== 'hidden')).map(n => ({ ...n, visibility: 'visible', hp:null, san:null, maxHp:null, maxSan:null, attributes:null }));
+          if (!safeParsed.actions?.length) safeParsed.options = generatedOptions(session);
+          if (flowType === FlowType.STORY_OPENING) { safeParsed.actions = null; safeParsed.options = generatedOptions(session); safeParsed.active_event_ack = null; safeParsed.evidence_changes = []; safeParsed.combat_update = null; }
+        }
         if (isHybrid(session) && [FlowType.NARRATION_I, FlowType.NARRATION_II].includes(flowType)) {
           const tx = investigationState(session).transaction;
           safeParsed.actions = tx && !tx.resolved && tx.checks.length ? tx.checks : null;
@@ -1428,6 +1489,20 @@ export class GameOrchestrator {
   }
 
   _buildEndingFallback(session, raw) {
+    if (isGenerated(session)) {
+      const p = session.npcs.find(n => n.id === 'npc_000');
+      const death = p?.hp <= 0, exhausted = !death && p?.san <= 0;
+      const truth = scenarioProgressService.evaluateTruth(session);
+      const resolution = death ? '主角因伤势恶化死亡，本次行动到此结束。' : exhausted ? '主角已无法继续独立行动，由在场人员协助退出现场。' : session.finaleState?.resolutionOutcome?.text || '直接危险已经结束，你作出了最后决定，不再继续本局调查。';
+      const outcome = death || exhausted ? '主角无法亲自完成材料处置，现有记录保留其实际证明程度。' : session.scenarioDefinition.endings[session.finalChoice === 'suppress' ? 'destroy' : session.finalChoice || 'withdraw'];
+      const parsed = { ending_type: death ? 'death' : exhausted ? 'madness' : 'custom', ending_title: `${session.scenarioDefinition.title}：调查终结`,
+        immediate_resolution: resolution, player_outcome: death ? '主角死亡。' : exhausted ? `主角生还，但${resourceLabel(session)}耗尽，需要他人照护。` : '你退出本次调查并承担所作决定的后果。',
+        character_outcomes: this._requiredEndingNpcs(session).map(n => ({ npc_id: n.id, name: n.name, outcome: n.hp === 0 ? '已死亡，本局不再行动。' : '结束与主角的这次接触并退出当前冲突，不再继续争夺。' })),
+        truth_outcome: `${outcome} ${truth.truthProvable ? '已保全的材料能够支撑全部核心事实。' : session.scenarioDefinition.endings.incomplete}`,
+        ending_text: `${resolution}\n${outcome}\n本局调查已经完成，未证明的部分作为本案缺口保留，不再要求新的行动。`,
+        debrief: { hidden_plot: session.scenarioDefinition.hiddenTruth, important_events: session.scheduledEvents.filter(e => e.fired).map(e => e.text), evidence_used: truth.securedEvidence, missed_leads: session.scenarioDefinition.clues.filter(c => !truth.securedEvidence.includes(c.id)).map(c => c.name), next_try: '可以重玩同一案件，尝试其他取证路径；也可以保留设定生成新案。' } };
+      return { raw: JSON.stringify(parsed), refinedHtml: textRefiner.refine(FlowType.ENDING_GEN, parsed).html };
+    }
     const parsed = jsonOutputParser.parse(raw) || {};
     const player = (session.npcs || []).find(npc => npc.id === 'npc_000');
     const choice = session.finalChoice;
@@ -1980,12 +2055,12 @@ export class GameOrchestrator {
     }
     else if (result.finaleDecisionActivated) result.parsed[OPTIONS] = null;
     if (consolidating) {
-      result.parsed[OPTIONS] = isHybrid(session) && investigationState(session).actions >= 24 ? [...FINALE_OPTIONS] : consolidationOptions(session);
+      result.parsed[OPTIONS] = isHybrid(session) && investigationState(session).actions >= commitmentAt(session) ? finaleOptions(session) : isGenerated(session) ? generatedOptions(session) : consolidationOptions(session);
       if (isHybrid(session)) {
         const truth = scenarioProgressService.evaluateTruth(session);
         const gaps = session.evidence.filter(e => e.discovered !== false && !e.secured).map(e => e.source).join('、') || '已发现材料均已保全；仍可能有未遇见的线索';
-        const early = investigationState(session).actions < 24;
-        result.parsed[NARRATION] += `\n\n【${early ? '继续调查或自愿提前收束' : '最终决定前的调查摘要'}】证据已保全${truth.securedEvidence.length}项，真相${truth.factCount}/${truth.totalFacts}；待补足：${gaps}。${early ? '仍可继续调查。' : ''}自愿结束可输入“最终决定：公开真相／保全并带走证据／销毁或压下真相／撤离白桦站”中的一项；提交后不可继续调查。`;
+        const early = investigationState(session).actions < commitmentAt(session);
+        result.parsed[NARRATION] += `\n\n【${early ? '继续调查或自愿提前收束' : '最终决定前的调查摘要'}】证据已保全${truth.securedEvidence.length}项，真相${truth.factCount}/${truth.totalFacts}；待补足：${gaps}。${early ? '仍可继续调查。' : ''}自愿结束可输入“最终决定：公开真相／保全并带走证据／销毁或压下真相／撤离${isGenerated(session) ? '调查现场' : '白桦站'}”中的一项；提交后不可继续调查。`;
       }
       session.optionBuffer = result.parsed[OPTIONS].join('\n');
     }
@@ -2008,8 +2083,8 @@ export class GameOrchestrator {
       stage: 'decision',
       decisionRequestedAt: session.scenarioClock?.currentTime || '06:00',
     };
-    session.optionBuffer = FINALE_OPTION_BUFFER;
-    return `【终局抉择】眼前的危险已经告一段落。请选择如何处置真相与证据：\n${FINALE_OPTION_BUFFER}`;
+    session.optionBuffer = finaleOptions(session).join('\n');
+    return `【终局抉择】眼前的危险已经告一段落。请选择如何处置真相与证据：\n${session.optionBuffer}`;
   }
 
   _enterFinale(session, result = {}) {
@@ -2028,10 +2103,11 @@ export class GameOrchestrator {
       completedActions: session.finaleState?.completedActions || 0,
       crisisSnapshot: session.finaleState?.crisisSnapshot || (session.combat ? structuredClone(session.combat) : null),
     };
-    session.scenarioFlags.train_departed = true;
+    if (isGenerated(session)) session.scenarioFlags.investigation_closed = true;
+    else session.scenarioFlags.train_departed = true;
     if (resolvingScene) session.optionBuffer = CRISIS_OPTIONS.join('\n');
     const message = resolvingScene
-      ? `【06:00 · 终局】雾港号已经离站。\n${crisisGuidance(session)}`
+      ? `${isGenerated(session) ? '【调查终局】正常调查机会已经用完。' : '【06:00 · 终局】雾港号已经离站。'}\n${crisisGuidance(session)}`
       : this._activateFinaleDecision(session);
     const targetStage = resolvingScene ? 'resolve_scene' : 'decision';
     const shouldAnnounce = !wasFinale || previousStage !== targetStage;
@@ -2061,8 +2137,8 @@ export class GameOrchestrator {
     const choice = conflicting ? null : scenarioProgressService.detectFinalChoice(modelUserText)
       || (modelUserText === userText || session.optionBuffer === FINALE_OPTION_BUFFER ? detectFinaleOptionChoice(userText) : null);
     if (!choice) {
-      const message = `【终局抉择尚未确认】请明确选择以下一项：\n${FINALE_OPTION_BUFFER}`;
-      session.optionBuffer = FINALE_OPTION_BUFFER;
+      const message = `【终局抉择尚未确认】请明确选择以下一项：\n${finaleOptions(session).join('\n')}`;
+      session.optionBuffer = finaleOptions(session).join('\n');
       session.subState = SubState.AWAITING_INPUT;
       this._recordSystemMessage(session, message);
       this.repository.save(session);
@@ -2178,8 +2254,23 @@ export class GameOrchestrator {
    * 重启故事（用户点"是"后调用）。
    * 委托 EndingService 执行重启流程，并推送 displayLog 让前端能看到新开幕。
    */
-  restartStory(sessionId) {
+  restartStory(sessionId, { regenerate = false } = {}) {
     const session = this.getSession(sessionId);
+    if (isGenerated(session)) {
+      const next = this.repository.create(session.title);
+      next.llmProfileId = session.llmProfileId;
+      next.worldSettings = session.worldSettings; next.player = session.player; next.keyCharacters = structuredClone(session.keyCharacters);
+      next.investigationSetup = structuredClone(session.investigationSetup);
+      next.phase = Phase.CHARACTER_SETTING;
+      const player = session.npcs.find(n => n.id === 'npc_000');
+      next.npcs = player ? [{ ...structuredClone(player), hp: player.maxHp, san: player.maxSan, status: 'active' }] : [];
+      if (!regenerate) {
+        next.scenarioSource = 'generated'; next.scenarioSchemaVersion = session.scenarioSchemaVersion;
+        next.scenarioDefinition = structuredClone(session.scenarioDefinition); next.generationStatus = { stage: 'ready', attempts: 0 };
+      }
+      this.repository.save(next);
+      return { session: next.toClientJSON() };
+    }
     // 预设试炼的“再试一次”始终创建新会话，避免覆盖当前结局或自由剧本存档。
     if (session.scenarioId) return this.createBirchStationTutorial();
     endingService.restartStory(session);

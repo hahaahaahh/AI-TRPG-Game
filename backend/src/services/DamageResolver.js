@@ -109,7 +109,8 @@ export class DamageResolver {
     let traumaPenaltyDice = isHybrid(session) && !mental ? 0 : this._consumeTraumaSkillPenalty(session);
     const p = this._findNpc(session, 'player');
     const injuryPenalty = isHybrid(session) && /闪避|攀爬|跳跃|斗殴/.test(skillName) && (p.hp <= Math.floor(p.maxHp / 2) || investigationState(session).injuries.some(i => !i.treated && i.damage >= Math.ceil(p.maxHp / 2))) ? 1 : 0;
-    const sanPenalty = isHybrid(session) ? (mental ? p.san <= 30 ? 2 : p.san <= 45 ? 1 : 0 : 0) : this._sanPenaltyDice(session);
+    const effectiveSan = session.scenarioSource === 'generated' ? p.san * 60 / Math.max(1,session.sanity?.startSan || p.maxSan) : p.san;
+    const sanPenalty = isHybrid(session) ? (mental ? effectiveSan <= 30 ? 2 : effectiveSan <= 45 ? 1 : 0 : 0) : this._sanPenaltyDice(session);
     const penaltyDice = Math.min(2, (action[PENALTY_DICE] || 0) + sanPenalty + traumaPenaltyDice + injuryPenalty);
     const onSuccess = action[ON_SUCCESS] || [];
     const onFail = action[ON_FAIL] || [];
@@ -224,7 +225,8 @@ export class DamageResolver {
       catastrophe: { success: '1d6+2', failure: '2d6+3' },
     };
     const damageFormula = (formulas[severity] || formulas.major)[isSuccess ? 'success' : 'failure'];
-    const damage = /^\d+$/.test(damageFormula) ? Number(damageFormula) : diceService.rollFormula(damageFormula);
+    const baseDamage = /^\d+$/.test(damageFormula) ? Number(damageFormula) : diceService.rollFormula(damageFormula);
+    const damage = session.scenarioSource === 'generated' && baseDamage > 0 ? Math.max(1,Math.round(baseDamage * (session.sanity?.startSan || 60) / 60)) : baseDamage;
 
     const oldSan = target.san;
     const previousState = target.id === 'npc_000'
@@ -241,12 +243,13 @@ export class DamageResolver {
     const subject = isPlayer
       ? (target.name ? `你（${target.name}）` : '你')
       : targetName;
-    const msg = `【${subject} 直视了不可直视之物，SAN -${actualDamage}（${target.san}/${maxSan}）】`;
+    const stressMode = session.investigationSetup?.psychologicalPresentation === 'stress';
+    const msg = stressMode ? `【${subject} 面对强烈压力，心理承受力 -${actualDamage}（${target.san}/${maxSan}）】` : `【${subject} 直视了不可直视之物，SAN -${actualDamage}（${target.san}/${maxSan}）】`;
 
     this._checkDeparted(target, departedNpcs);
     if (eventResolution.eventId) scenarioProgressService.recordSanEvent(session, eventResolution.eventId);
 
-    const messages = [`${msg} [SAN severity: ${severity}]`];
+    const messages = [`${msg}【冲击程度：${({unease:'不安',major:'重大',catastrophe:'灾变'})[severity] || '重大'}】`];
     if (eventResolution.event?.label) {
       messages.push(`【SAN事件：${eventResolution.event.label}】`);
     }

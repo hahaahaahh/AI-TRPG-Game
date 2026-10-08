@@ -38,6 +38,12 @@ export class GameSession {
       : [];
     // 剧本驱动状态。普通自由剧本保持 null / 空数组，保证旧存档兼容。
     this.scenarioId = data.scenarioId ?? null;
+    this.scenarioSource = data.scenarioSource ?? (data.scenarioId ? 'authored' : null);
+    this.scenarioDefinition = data.scenarioDefinition ?? null;
+    this.scenarioSchemaVersion = data.scenarioSchemaVersion ?? null;
+    this.investigationSetup = data.investigationSetup ?? null;
+    this.generationStatus = data.generationStatus ?? null;
+    this.scenarioPreparation = data.scenarioPreparation ?? null;
     this.scenarioRules = data.scenarioRules ?? null;
     this.scenarioClock = data.scenarioClock ?? null;
     if (this.scenarioClock && !['normal', 'finale'].includes(this.scenarioClock.mode)) {
@@ -97,9 +103,9 @@ export class GameSession {
     //    已存在的 npc_000 若 name 仍为占位"玩家"，也尝试从 player 字符串补全真实姓名
     const playerNpc = this.npcs.find(n => n.id === 'npc_000');
     if (!playerNpc && this.player) {
-      const nameMatch = String(this.player).match(/姓名[::]\s*([^\n]+)/);
-      const hpMatch = String(this.player).match(/HP[::]\s*(\d+)/i);
-      const sanMatch = String(this.player).match(/SAN[::]\s*(\d+)/i);
+        const nameMatch = String(this.player).match(/姓名[：:]\s*([^\n]+)/);
+        const hpMatch = String(this.player).match(/HP[：:]\s*(\d+)/i);
+        const sanMatch = String(this.player).match(/SAN[：:]\s*(\d+)/i);
       const name = nameMatch ? nameMatch[1].trim() : '玩家';
       const hp = hpMatch ? parseInt(hpMatch[1], 10) : 10;
       const san = sanMatch ? parseInt(sanMatch[1], 10) : 50;
@@ -118,7 +124,7 @@ export class GameSession {
         lastUpdatedAt: 0,
       });
     } else if (playerNpc && playerNpc.name === '玩家' && this.player) {
-      const nameMatch = String(this.player).match(/姓名[::]\s*([^\n]+)/);
+        const nameMatch = String(this.player).match(/姓名[：:]\s*([^\n]+)/);
       if (nameMatch && nameMatch[1].trim()) playerNpc.name = nameMatch[1].trim();
     }
 
@@ -322,6 +328,12 @@ export class GameSession {
       characterInitialStats: this.characterInitialStats,
       recentReasoningContents: this.recentReasoningContents,
       scenarioId: this.scenarioId,
+      scenarioSource: this.scenarioSource,
+      scenarioDefinition: this.scenarioDefinition,
+      scenarioSchemaVersion: this.scenarioSchemaVersion,
+      investigationSetup: this.investigationSetup,
+      generationStatus: this.generationStatus,
+      scenarioPreparation: this.scenarioPreparation,
       scenarioRules: this.scenarioRules,
       scenarioClock: this.scenarioClock,
       playerLocationId: this.playerLocationId,

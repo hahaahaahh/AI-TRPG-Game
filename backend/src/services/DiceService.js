@@ -1,4 +1,8 @@
 import crypto from 'crypto';
+import { AsyncLocalStorage } from 'node:async_hooks';
+const simulationDice = new AsyncLocalStorage();
+// Internal route verification only; no HTTP/session field can enable this.
+export const withSimulationDice = callback => simulationDice.run(true, callback);
 
 export class DiceService {
   parseNotation(diceTagContent) {
@@ -20,6 +24,7 @@ export class DiceService {
   }
 
   rollDie(sides) {
+    if(simulationDice.getStore()) return sides;
     return crypto.randomInt(1, sides + 1);
   }
 
@@ -91,6 +96,7 @@ export class DiceService {
    *   - usedTensIndex: 最终使用的十位骰在 tens 数组中的索引
    */
   rollWithBonusPenalty(bonusDice = 0, penaltyDice = 0) {
+    if(simulationDice.getStore()) return {value:99,tens:[9],ones:9,usedTensIndex:0};
     const bonus = Math.min(Math.max(bonusDice, 0), 2);
     const penalty = Math.min(Math.max(penaltyDice, 0), 2);
     const extraTens = Math.max(bonus, penalty); // 额外十位骰数量

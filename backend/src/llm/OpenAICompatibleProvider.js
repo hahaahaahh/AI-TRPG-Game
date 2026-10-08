@@ -81,7 +81,7 @@ export class OpenAICompatibleProvider extends LLMProvider {
    * 非流式生成（strict 模式 + 按模型能力选择可选推理参数）。
    * @param {Object} assembled - InputAssembler.assemble() 的返回值
    *   新增字段：
-   *   - reasoningEffort?: 'high' | 'max' —— 思考强度（思考模式下生效）
+   *   - reasoningEffort?: string —— 按提供商能力与流程策略选择思考强度
    *   - modelOverride?: string —— 单次调用覆盖默认模型（分层路由用）
    * @returns {Promise<LLMResult>} LLM 输出结果对象
    */
@@ -92,7 +92,10 @@ export class OpenAICompatibleProvider extends LLMProvider {
 
     const { messages, temperature, maxTokens, thinking, stop, tools, toolChoice, reasoningEffort, modelOverride, flowType } = assembled;
     const url = `${this.baseUrl}/chat/completions`;
-    const flowPolicy = this.flowPolicies[flowType] || {};
+    const flowPolicy = { ...(this.flowPolicies[flowType] || {}) };
+    if (flowType === 'SCENARIO_GEN' && assembled.preparationStage && assembled.preparationStage !== 'outline' && !flowPolicy.reasoningExplicit && !this.thinkingTypeExplicit) {
+      flowPolicy.reasoningEffort='none'; flowPolicy.thinking=false;
+    }
     const requestMaxTokens = flowPolicy.maxTokens ?? maxTokens ?? 4096;
     const requestTimeoutMs = flowPolicy.timeoutMs ?? this.timeoutMs;
     const timeoutRetries = Number.isInteger(flowPolicy.timeoutRetries)
@@ -143,8 +146,9 @@ export class OpenAICompatibleProvider extends LLMProvider {
       // DeepSeek V4 defaults to thinking; in thinking mode tool_choice is not
       // supported, so only pass the tools list.
       body.thinking = { type: 'enabled' };
-      // DeepSeek V4 uses its thinking switch. Do not send reasoning_effort:
-      // it is not part of the DeepSeek-compatible request contract.
+      // Current official V4/Flash API supports effort. Unknown compatible
+      // endpoints remain capability-gated; non-thinking requests omit effort.
+      if (requestedReasoningEffort && requestedReasoningEffort !== 'none') body.reasoning_effort = requestedReasoningEffort;
       // 思考模式下不支持 tool_choice（API 会返回 400），故不透传
       // 即使调用方误传 toolChoice，也在此显式忽略，避免 400 错误
     } else if (this.isDeepSeek) {
@@ -174,6 +178,7 @@ export class OpenAICompatibleProvider extends LLMProvider {
       body.stop = stop;
     }
 
+    const transport = { attempts: 0 };
     const response = await this._fetchWithRetry(url, {
       method: 'POST',
       headers: {
@@ -181,7 +186,7 @@ export class OpenAICompatibleProvider extends LLMProvider {
         Authorization: `Bearer ${this.apiKey}`,
       },
       body: JSON.stringify(body),
-    }, { timeoutMs: requestTimeoutMs, timeoutRetries });
+    }, { timeoutMs: requestTimeoutMs, timeoutRetries, transport });
 
     // 方案 B+ 诊断日志：打印实际发送的 messages 结构（重点看 tool_calls 历史消息）
     // 用于实测验证 DeepSeek API 是否正常处理 tool_calls 历史消息
@@ -267,6 +272,7 @@ export class OpenAICompatibleProvider extends LLMProvider {
           reasoningLen,
           contentHead,
           finishReason: choice?.finish_reason || null,
+          transportAttempts: transport.attempts,
           requestPolicy: { maxTokens: requestMaxTokens, timeoutMs: requestTimeoutMs, reasoningEffort: requestedReasoningEffort || null, thinking: thinkingEnabled },
         },
       };
@@ -285,6 +291,7 @@ export class OpenAICompatibleProvider extends LLMProvider {
         reasoningLen: reasoningContent ? reasoningContent.length : 0,
         contentHead: (toolCall.function.arguments || '').slice(0, 500),
         finishReason: choice?.finish_reason || null,
+        transportAttempts: transport.attempts,
         requestPolicy: { maxTokens: requestMaxTokens, timeoutMs: requestTimeoutMs, reasoningEffort: requestedReasoningEffort || null, thinking: thinkingEnabled },
       },
     };
@@ -294,12 +301,13 @@ export class OpenAICompatibleProvider extends LLMProvider {
    * Retry transient rate-limit/upstream failures while keeping a bounded
    * timeout for every individual request.
    */
-  async _fetchWithRetry(url, init, { timeoutMs = this.timeoutMs, timeoutRetries = 0 } = {}) {
+  async _fetchWithRetry(url, init, { timeoutMs = this.timeoutMs, timeoutRetries = 0, transport = {} } = {}) {
     const retryableStatuses = new Set([429, 500, 502, 503, 504]);
     let lastError = null;
     let timedOutAttempts = 0;
 
     for (let attempt = 0; attempt <= this.maxRetries; attempt += 1) {
+      transport.attempts = attempt + 1;
       try {
         const canTimeout = typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function';
         const signal = canTimeout ? AbortSignal.timeout(timeoutMs) : undefined;

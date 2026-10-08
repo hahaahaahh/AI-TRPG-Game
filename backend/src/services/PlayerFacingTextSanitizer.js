@@ -18,12 +18,12 @@ function isHiddenNpc(session, id) {
 function replacementFor(session, id) {
   if (/^loc_/i.test(id)) {
     const location = session.locations?.find(entry => entry.id === id)
-      || session.scenarioRules?.locationCatalog?.[id];
+      || (session.scenarioSource === 'generated' ? null : session.scenarioRules?.locationCatalog?.[id]);
     return location?.name || '某处地点';
   }
   if (/^evidence_/i.test(id)) {
     const clue = session.evidence?.find(entry => entry.id === id)
-      || session.scenarioRules?.clueCatalog?.[id];
+      || (session.scenarioSource === 'generated' ? null : session.scenarioRules?.clueCatalog?.[id]);
     return clue?.source || '一项线索';
   }
   if (/^npc_/i.test(id)) {

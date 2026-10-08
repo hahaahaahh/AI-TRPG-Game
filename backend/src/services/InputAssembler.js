@@ -3,6 +3,7 @@ import { promptTemplateRegistry, FLOW_TEMPERATURE, FLOW_MAX_TOKENS, FLOW_THINKIN
 import { necessarySettingsBuilder } from './NecessarySettingsBuilder.js';
 import { buildStrictTools, FLOW_FUNCTION_NAMES } from '../domain/StrictSchemaRegistry.js';
 import { endingService } from './EndingService.js';
+import { INVESTIGATION_LENGTHS } from '../domain/GeneratedScenario.js';
 
 // 注意：思考模式下不支持 tool_choice（DeepSeek API 会返回 400）
 // buildStrictTools 返回的 toolChoice 字段已废弃，不再透传给 Provider
@@ -112,6 +113,19 @@ export class InputAssembler {
     const messages = [{ role: 'system', content: template.systemInstruction }];
 
     switch (flowType) {
+      case FlowType.ACTION_INTERPRET:
+        messages.push({ role: 'user', content: JSON.stringify({ input: userText, locationId: session.playerLocationId,
+          locations: session.locations.map(l => ({id:l.id,name:l.name})), npcs: session.npcs.filter(n => n.visibility !== 'hidden').map(n => ({id:n.id,name:n.name})),
+          evidence: session.evidence.filter(e => e.discovered !== false).map(e => ({id:e.id,name:e.source,components:session.scenarioDefinition?.clues.find(c => c.id === e.id)?.components.map(c => ({id:c.id,name:c.name}))})),
+        }) });
+        break;
+      case FlowType.SCENARIO_GEN:
+        messages.push({ role: 'user', content: JSON.stringify({
+          world: session.worldSettings, protagonist: session.player, companions: session.keyCharacters,
+          setup: session.investigationSetup, limits: INVESTIGATION_LENGTHS[session.investigationSetup?.length || 'standard'],
+          repair: userText || null,
+        }) });
+        break;
       case FlowType.WORLD_GEN:
         this._buildWorldGenMessages(messages, session, userText);
         break;

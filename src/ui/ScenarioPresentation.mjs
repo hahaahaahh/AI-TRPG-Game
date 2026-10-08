@@ -61,6 +61,7 @@ export function sanitizePlayerText(session = {}, value = '') {
   for (const location of session.locations || []) replacements.set(location.id, location.name || '某处地点');
   for (const evidence of session.evidence || []) replacements.set(evidence.id, evidence.source || '一项线索');
   for (const [id, clue] of Object.entries(session.scenarioRules?.clueCatalog || {})) {
+    if (session.scenarioSource === 'generated') continue;
     if (!replacements.has(id)) replacements.set(id, clue.source || '一项线索');
   }
   for (const npc of session.npcs || []) replacements.set(npc.id, npc.visibility === 'hidden' ? '某人' : (npc.name || '某人'));

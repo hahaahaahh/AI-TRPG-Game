@@ -1,5 +1,6 @@
 import { scenarioProgressService } from './ScenarioProgressService.js';
 import { isHybrid, advanceHybrid } from './InvestigationDirector.js';
+import { queueGeneratedEffects } from './GeneratedEventEffects.js';
 
 const EVENT_STATES = new Set(['dormant', 'eligible', 'queued', 'resolved', 'expired']);
 const MOVEMENT_WORDS = /(?:前往|去往|赶往|赶到|进入|回到|返回|移动到|走向|来到|登上|下到|离开.*去|\bgo\b|\bvisit\b|\btravel\b|\bmove\b|\bhead\b|\benter\b|\breturn\b)/i;
@@ -491,6 +492,7 @@ export class ScheduleService {
     event.pendingRevealLocations = clone(branch.revealsLocations || event.revealsLocations || []);
 
     this._applyBranchConsequences(session, branch, event.resolutionLocationId);
+    queueGeneratedEffects(session,event);
     const revealedLocations = visible && !branch.leavesAftermath
       ? scenarioProgressService.revealLocations(session, event.pendingRevealLocations)
       : [];

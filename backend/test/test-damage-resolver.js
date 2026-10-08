@@ -205,7 +205,7 @@ assert(resolver._sanPenaltyDice({ scenarioId: 'tutorial', npcs: [makeNpc('npc_00
   }] });
   assert(session.npcs[0].san < 60 && session.npcs[1].san === 55, 'authored SAN event should target the authored player target, not the LLM target');
   assert(session.sanity.resolvedEventIds.includes('recorded_horror'), 'authored SAN event should only resolve once and be persisted');
-  assert(result.systemMessages[0].includes('severity: major'), 'authored SAN event severity should override the LLM value');
+  assert(result.systemMessages[0].includes('冲击程度：重大'), 'authored SAN event severity should override the LLM value in localized output');
 }
 
 // === 场景E4：单次重度 SAN 损失立刻引发创伤后果 ===

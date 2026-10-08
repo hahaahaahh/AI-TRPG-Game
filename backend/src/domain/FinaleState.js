@@ -6,6 +6,11 @@ export const FINALE_OPTIONS = [
 ];
 
 export const FINALE_OPTION_BUFFER = FINALE_OPTIONS.join('\n');
+export function finaleOptions(session) {
+  return session.scenarioSource === 'generated'
+    ? ['A. 最终决定：公开真相', 'B. 最终决定：保全并带走证据', 'C. 最终决定：销毁或压下真相', 'D. 最终决定：撤离调查现场']
+    : [...FINALE_OPTIONS];
+}
 
 const FINALE_CHOICE_BY_LETTER = Object.freeze({
   A: 'expose',
@@ -45,7 +50,8 @@ export function repairFinaleState(session) {
   session.scenarioClock.mode = 'finale';
   session.scenarioClock.phase = 'finale';
   session.scenarioFlags ||= {};
-  session.scenarioFlags.train_departed = true;
+  if (session.scenarioSource === 'generated') session.scenarioFlags.investigation_closed = true;
+  else session.scenarioFlags.train_departed = true;
 
   const previousStage = session.finaleState?.stage || null;
   if (TERMINAL_STAGES.has(previousStage)) {
@@ -74,7 +80,7 @@ export function repairFinaleState(session) {
   if (stage === 'decision') {
     session.pendingDiceFlow = null;
     if (!String(session.optionBuffer || '').trim()) {
-      session.optionBuffer = FINALE_OPTION_BUFFER;
+      session.optionBuffer = finaleOptions(session).join('\n');
     }
   }
 

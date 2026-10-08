@@ -1,5 +1,6 @@
 // Pure rules shared by the UI and engine. No hidden location/name is emitted
 // unless it already exists in the player's discovered location collection.
+import { generatedComponentAccess, generatedEvidenceDetails, generatedActionText } from './GeneratedInvestigationRules.mjs';
 export const components = {
   evidence_001: [['record','刮痕记录','loc_001','给门锁刮痕拍照']],
   evidence_002: [['record','泥粒样本','loc_001','把地毯湿泥装袋取样']],
@@ -31,6 +32,7 @@ export function requestedComponents(session,id,text) {
   return ['record'];
 }
 export function componentAccess(session,id,component) {
+  if (session.scenarioSource === 'generated') return generatedComponentAccess(session,id,component);
   if (heldComponents(session,id).includes(component)) return {ok:true};
   const def=components[id]?.find(c=>c[0]===component);
   if (!def) return {ok:false,reason:'尚无明确的保全方法，请先调查来源。'};
@@ -42,6 +44,7 @@ export function componentAccess(session,id,component) {
   return {ok:false,reason:place ? `须先到达${place.name}。` : '材料来源尚待调查。'};
 }
 export function evidenceDetails(session,id) {
+  if (session.scenarioSource === 'generated') return generatedEvidenceDetails(session,id);
   const record=session.evidence?.find(e=>e.id===id && e.discovered!==false);
   if (!record) return null;
   const equipped=session.inventory?.some(i=>i.id==='item_field_kit' && i.status!=='已失去');
@@ -59,6 +62,7 @@ export function evidenceDetails(session,id) {
   return {rows};
 }
 export function actionText(session,action) {
+  if (session.scenarioSource === 'generated') return generatedActionText(session,action);
   if (action?.kind==='move') {
     const place=session.locations?.find(l=>l.id===action.locationId);
     return place ? `进入${place.name}` : null;

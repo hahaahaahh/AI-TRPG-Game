@@ -34,4 +34,9 @@ npm-debug.log*
 # Misc
 *.tmp
 
-docs/
+docs/*
+!docs/screenshots/
+docs/screenshots/*
+!docs/screenshots/01-birch-opening.png
+!docs/screenshots/02-evidence-details.png
+!docs/screenshots/03-guided-mode-selector.png

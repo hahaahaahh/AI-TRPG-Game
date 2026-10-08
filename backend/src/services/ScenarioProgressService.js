@@ -37,6 +37,7 @@ export class ScenarioProgressService {
 
   getPlayerSanState(session) {
     const player = session.npcs?.find(npc => npc.id === 'npc_000');
+    if (session.scenarioSource === 'generated') return this.getSanState(Math.round((player?.san || 0) * 60 / Math.max(1, session.sanity?.startSan || player?.maxSan || 60)));
     return this.getSanState(player?.san ?? 0);
   }
 
@@ -59,6 +60,9 @@ export class ScenarioProgressService {
     if (!events || typeof events !== 'object') return [];
     const current = toMinutes(session.scenarioClock?.currentTime);
     const resolved = new Set(session.sanity?.resolvedEventIds || []);
+    if (session.scenarioSource === 'generated') return Object.entries(events)
+      .filter(([id,event]) => !resolved.has(id) && (session.activeScene?.eventId === id || session.scenarioFlags.pendingPsychologicalExposure?.includes(id)) && event.locationId === session.playerLocationId)
+      .map(([id,event]) => ({id,...event}));
     return Object.entries(events)
       .filter(([id, event]) => !resolved.has(id)
         && (session.scenarioRules?.pacingVersion === 3 || (toMinutes(event.at) ?? Infinity) <= (current ?? -1))

@@ -222,7 +222,8 @@ export function createGameController({ llmProvider, llmProviderRegistry }) {
     try {
       const session = requireSession(req);
       const orchestrator = createStatelessOrchestrator({ session, llmProvider, llmProviderRegistry });
-      const result = await orchestrator.openStory(req.params.id, {
+        const result = await orchestrator.openStory(req.params.id, {
+          preparationCommand: ['continue','restart'].includes(req.body.preparationCommand) ? req.body.preparationCommand : null,
         onDebug: (log) => sendSse('debug', log),
       });
       sendSse('done', result);
@@ -266,7 +267,7 @@ export function createGameController({ llmProvider, llmProviderRegistry }) {
     try {
       const session = requireSession(req);
       const orchestrator = createStatelessOrchestrator({ session, llmProvider, llmProviderRegistry });
-      res.json(orchestrator.restartStory(req.params.id));
+      res.json(orchestrator.restartStory(req.params.id, { regenerate: req.body.regenerate === true }));
     } catch (err) {
       res.status(400).json({ error: err.message });
     }

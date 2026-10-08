@@ -11,6 +11,7 @@
  * 由 InputAssembler 透传给 OpenAICompatibleProvider，最终放入 tools 参数。
  */
 import { FlowType } from '../domain/enums.js';
+import { generatedScenarioSchema } from './GeneratedScenario.js';
 import {
   NARRATION, LOCATIONS, NPCS, ITEMS, OPTIONS, HP, SAN,
   SUMMARY, WORLD_IMPRESSION, KEY_DESCRIPTION,
@@ -483,6 +484,8 @@ export function buildEndingGenStrictSchema() {
 //          历史消息的函数名始终在当前 tools 列表中找到，避免 API 兼容性问题。
 // 导出供 InputAssembler 构造历史 assistant tool_calls 消息时复用
 export const FLOW_FUNCTION_NAMES = {
+  [FlowType.SCENARIO_GEN]: 'output_scenario',
+  [FlowType.ACTION_INTERPRET]: 'output_action_interpretation',
   [FlowType.WORLD_GEN]: 'output_world',
   [FlowType.CHARACTER_GEN]: 'output_character',
   [FlowType.KEY_CHARACTER_GEN]: 'output_character',
@@ -505,6 +508,10 @@ const FLOW_FUNCTION_DESCRIPTIONS = {
 };
 
 const FLOW_SCHEMA_BUILDERS = {
+  [FlowType.SCENARIO_GEN]: () => generatedScenarioSchema,
+  [FlowType.ACTION_INTERPRET]: () => ({ type: 'object', additionalProperties: false, required: ['kind','targetId','componentId'], properties: {
+    kind: { type: 'string', enum: ['unclear','move','investigate','preserve','cooperate','recover_hp','recover_stress','escape','negotiate','surrender'] }, targetId: { type: 'string' }, componentId: { type: 'string' },
+  } }),
   [FlowType.WORLD_GEN]: buildWorldGenStrictSchema,
   [FlowType.CHARACTER_GEN]: buildCharacterGenStrictSchema,
   [FlowType.KEY_CHARACTER_GEN]: buildCharacterGenStrictSchema,

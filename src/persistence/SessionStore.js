@@ -1,20 +1,54 @@
 const DB_NAME = 'ai-trpg-game';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_NAME = 'sessions';
+const DELETIONS = 'deletedSessions';
+export class DeletedSessionError extends Error {
+  constructor(id) { super('该会话已删除，迟到的结果不会恢复它。'); this.name = 'DeletedSessionError'; this.sessionId = id; }
+}
 const RECOVERABLE_SUB_STATES = new Set(['LLM_STREAMING', 'SUMMARIZING']);
 
 function openDb() {
   return new Promise((resolve, reject) => {
+    let blocked = false;
     const request = indexedDB.open(DB_NAME, DB_VERSION);
     request.onupgradeneeded = () => {
       const db = request.result;
+      if (!db.objectStoreNames.contains(DELETIONS)) db.createObjectStore(DELETIONS, { keyPath: 'id' });
       if (!db.objectStoreNames.contains(STORE_NAME)) {
         const store = db.createObjectStore(STORE_NAME, { keyPath: 'id' });
         store.createIndex('updatedAt', 'updatedAt');
       }
     };
-    request.onsuccess = () => resolve(request.result);
+    request.onsuccess = () => {
+      if (blocked) { request.result.close(); return; }
+      request.result.onversionchange = () => request.result.close();
+      resolve(request.result);
+    };
+    request.onblocked = () => { blocked = true; reject(new Error('存储升级被旧标签页阻塞，请关闭其他游戏标签后重试。')); };
     request.onerror = () => reject(request.error);
+  });
+}
+
+// All record creation and deletion share these stores, so concurrent tabs cannot
+// interleave a marker check with a subsequent write. Never prune tombstones.
+async function writeSession(id, value) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction([STORE_NAME, DELETIONS], 'readwrite');
+    const sessions = tx.objectStore(STORE_NAME), markers = tx.objectStore(DELETIONS);
+    let failure;
+    if (value === null) {
+      markers.put({ id, deletedAt: new Date().toISOString() });
+      sessions.delete(id);
+    } else {
+      const check = markers.get(id);
+      check.onsuccess = () => {
+        if (check.result) { failure = new DeletedSessionError(id); tx.abort(); }
+        else sessions.put(value);
+      };
+    }
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onabort = tx.onerror = () => { db.close(); reject(failure || tx.error || new Error('存储事务失败')); };
   });
 }
 
@@ -75,6 +109,14 @@ function normalizeSession(session) {
     // 此前 normalizeSession 丢弃这些字段，导致 API 已创建的试炼会话
     // 一写入 IndexedDB 就退化为没有时钟的普通会话。
     scenarioId: session.scenarioId ?? null,
+    scenarioSource: session.scenarioSource ?? (session.scenarioId ? 'authored' : null),
+    scenarioDefinition: session.scenarioDefinition ?? null,
+    scenarioSchemaVersion: session.scenarioSchemaVersion ?? null,
+    investigationSetup: session.investigationSetup ?? null,
+    generationStatus: session.generationStatus ?? null,
+    scenarioPreparation: session.scenarioPreparation ?? null,
+    storyOpeningCache: session.storyOpeningCache ?? null,
+    characterInitialStats: session.characterInitialStats ?? null,
     scenarioRules: session.scenarioRules ?? null,
     scenarioClock: session.scenarioClock ?? null,
     playerLocationId: session.playerLocationId ?? null,
@@ -97,6 +139,27 @@ function normalizeSession(session) {
 }
 
 export class SessionStore {
+  constructor() {
+    this.listeners = new Set();
+    this.channel = typeof BroadcastChannel === 'function' ? new BroadcastChannel('ai-trpg-session-deletions') : null;
+    this.channel?.unref?.(); // Do not keep Node-based regression tests alive.
+    if (this.channel) this.channel.onmessage = event => {
+      if (event.data?.type === 'deleted' && typeof event.data.id === 'string') this._notifyDeletion(event.data.id);
+    };
+  }
+
+  onDelete(listener) { this.listeners.add(listener); return () => this.listeners.delete(listener); }
+  _notifyDeletion(id) { for (const listener of this.listeners) Promise.resolve().then(() => listener(id)).catch(console.error); }
+  close() { this.channel?.close(); this.listeners.clear(); }
+  async isDeleted(id) {
+    const db = await openDb();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(DELETIONS, 'readonly');
+      const request = tx.objectStore(DELETIONS).get(id);
+      tx.oncomplete = () => { db.close(); resolve(!!request.result); };
+      tx.onabort = tx.onerror = () => { db.close(); reject(tx.error); };
+    });
+  }
   async listSessions() {
     const sessions = await runStore('readonly', store => store.getAll());
     return sessions
@@ -114,8 +177,8 @@ export class SessionStore {
       ...session,
       updatedAt: new Date().toISOString(),
     });
-    await runStore('readwrite', store => store.put(normalized));
-    localStorage.setItem('ai-trpg-current-session-id', normalized.id);
+    if (!normalized.id) throw new Error('会话缺少标识，无法保存。');
+    await writeSession(normalized.id, normalized);
     return normalized;
   }
 
@@ -165,10 +228,13 @@ export class SessionStore {
   }
 
   async deleteSession(id) {
-    await runStore('readwrite', store => store.delete(id));
-    if (localStorage.getItem('ai-trpg-current-session-id') === id) {
-      localStorage.removeItem('ai-trpg-current-session-id');
-    }
+    await writeSession(id, null);
+    // UI hints cannot turn an already committed deletion into a reported failure.
+    try {
+      if (localStorage.getItem('ai-trpg-current-session-id') === id) localStorage.removeItem('ai-trpg-current-session-id');
+      this.channel?.postMessage({ type: 'deleted', id });
+    } catch (error) { console.warn('会话已删除，但同步提示发送失败。', error); }
+    this._notifyDeletion(id);
   }
 
   getCurrentSessionId() {
